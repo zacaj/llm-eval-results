@@ -1,0 +1,1322 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Aider eval results — Qwen3.6-35B-A3B variants</title>
+<style>
+  .viz-root {
+    color-scheme: light;
+    --surface-1:      #fcfcfb;
+    --page:           #f9f9f7;
+    --text-primary:   #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted:     #898781;
+    --grid:           #e1e0d9;
+    --baseline:       #c3c2b7;
+    --border:         rgba(11,11,11,0.10);
+    --seq-blue:       #2a78d6;
+    --seq-blue-dark:  #1c5cab;
+    --status-good:      #0ca30c;
+    --status-critical:  #d03b3b;
+    --good-fast:      #0a6e0a;
+    --good-slow:      #bfe6b4;
+    --quant-iq3xxs:   #2a78d6;
+    --quant-iq4xs:    #eb6834;
+    --quant-q4kxl:    #1baf7a;
+    --quant-other:    #898781;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) .viz-root {
+      color-scheme: dark;
+      --surface-1:      #1a1a19;
+      --page:           #0d0d0d;
+      --text-primary:   #ffffff;
+      --text-secondary: #c3c2b7;
+      --text-muted:     #898781;
+      --grid:           #2c2c2a;
+      --baseline:       #383835;
+      --border:         rgba(255,255,255,0.10);
+      --seq-blue:       #3987e5;
+      --seq-blue-dark:  #256abf;
+      --status-good:      #0ca30c;
+      --status-critical:  #e66767;
+      --good-fast:      #1fae1f;
+      --good-slow:      #2f5c31;
+      --quant-iq3xxs:   #3987e5;
+      --quant-iq4xs:    #d95926;
+      --quant-q4kxl:    #199e70;
+      --quant-other:    #898781;
+    }
+  }
+  :root[data-theme="dark"] .viz-root {
+    color-scheme: dark;
+    --surface-1:      #1a1a19;
+    --page:           #0d0d0d;
+    --text-primary:   #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted:     #898781;
+    --grid:           #2c2c2a;
+    --baseline:       #383835;
+    --border:         rgba(255,255,255,0.10);
+    --seq-blue:       #3987e5;
+    --seq-blue-dark:  #256abf;
+    --status-good:      #0ca30c;
+    --status-critical:  #e66767;
+    --good-fast:      #1fae1f;
+    --good-slow:      #2f5c31;
+    --quant-iq3xxs:   #3987e5;
+    --quant-iq4xs:    #d95926;
+    --quant-q4kxl:    #199e70;
+    --quant-other:    #898781;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--page);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    color: var(--text-primary);
+  }
+  .viz-root { padding: 32px 24px 64px; max-width: 980px; margin: 0 auto; }
+
+  .page-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 4px; }
+  h1 { font-size: 20px; font-weight: 600; margin: 0; }
+  .subhead { color: var(--text-secondary); font-size: 13px; margin: 4px 0 24px; }
+  button.theme-toggle {
+    font: inherit; font-size: 12px; color: var(--text-secondary);
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 6px; padding: 5px 10px; cursor: pointer;
+  }
+  button.theme-toggle:hover { color: var(--text-primary); }
+
+  .stat-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin-bottom: 28px; }
+  .stat-tile { background: var(--surface-1); padding: 14px 16px; }
+  .stat-label { font-size: 11px; color: var(--text-muted); margin-bottom: 6px; }
+  .stat-value { font-size: 24px; font-weight: 600; }
+  .stat-sub { font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
+
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 20px 22px 16px; margin-bottom: 20px; }
+  .card h2 { font-size: 14px; font-weight: 600; margin: 0 0 2px; }
+  .card .desc { font-size: 12px; color: var(--text-secondary); margin: 0 0 18px; max-width: 62ch; }
+
+  /* Chart 1: horizontal bars */
+  .hbar-row { display: grid; grid-template-columns: 210px 1fr 90px; align-items: center; gap: 10px; padding: 3px 0; }
+  .hbar-label { display: flex; align-items: center; justify-content: flex-end; gap: 6px; font-size: 12px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; }
+  .hbar-label span.label-text { overflow: hidden; text-overflow: ellipsis; }
+  .hbar-label.main { color: var(--text-primary); font-weight: 600; }
+  .hbar-track { position: relative; height: 22px; }
+  .hbar-fill { position: absolute; left: 0; top: 1px; height: 20px; background: var(--seq-blue); border-radius: 0 4px 4px 0; cursor: default; }
+  .hbar-value { font-size: 12px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+
+  /* Chart 2: heatmap */
+  .heatmap-wrap { overflow-x: auto; }
+  table.heatmap { border-collapse: collapse; font-size: 11px; }
+  table.heatmap th, table.heatmap td { padding: 0; }
+  table.heatmap th.colhead {
+    writing-mode: vertical-rl; transform: rotate(180deg);
+    height: 150px; vertical-align: bottom; text-align: left;
+    color: var(--text-secondary); font-weight: 500; font-size: 11px;
+    padding-bottom: 6px; white-space: nowrap;
+  }
+  table.heatmap th.rowhead {
+    text-align: right; color: var(--text-secondary); font-weight: 500;
+    padding-right: 10px; white-space: nowrap; font-size: 12px;
+  }
+  .hm-cell {
+    width: 34px; height: 26px; text-align: center; vertical-align: middle;
+    border: 2px solid var(--surface-1); font-size: 10px; font-weight: 600;
+    cursor: default;
+  }
+  .hm-cell.fail { background: var(--status-critical); color: #ffffff; }
+
+  .legend { display: flex; gap: 18px; align-items: center; margin-top: 14px; font-size: 12px; color: var(--text-secondary); flex-wrap: wrap; }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .swatch { width: 12px; height: 12px; border-radius: 3px; flex: none; }
+
+  /* Quant identity — a small colored dot beside a model name/label, everywhere a
+     model is named. Never the only signal: text (name, legend) always carries it too. */
+  .quant-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .quant-legend { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; font-size: 12px; color: var(--text-secondary); margin: 4px 0 24px; }
+  .quant-legend .legend-item { display: flex; align-items: center; gap: 6px; }
+  .ramp-legend { display: flex; align-items: center; gap: 8px; }
+  .ramp-bar { width: 90px; height: 12px; border-radius: 3px; background: linear-gradient(to right, var(--good-fast), var(--good-slow)); }
+
+  /* Chart 3: grouped/stacked columns */
+  .vbars { display: flex; align-items: flex-end; gap: 18px; height: 220px; padding: 0 6px; border-bottom: 1px solid var(--baseline); }
+  .vbar-group { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; flex: 1; min-width: 0; }
+  .vbar-stack { width: 100%; max-width: 40px; display: flex; flex-direction: column-reverse; }
+  .vbar-seg { width: 100%; }
+  .vbar-seg.fail { background: var(--status-critical); border-radius: 0 0 4px 4px; }
+  .vbar-seg.pass { background: var(--status-good); border-radius: 4px 4px 0 0; margin-bottom: 2px; }
+  .vbar-seg.fail:only-child { border-radius: 4px 4px 4px 4px; }
+  .vbar-x { margin-top: 8px; font-size: 11px; color: var(--text-muted); }
+  .vbar-total { font-size: 10px; color: var(--text-muted); margin-bottom: 4px; }
+
+  /* Chart 4: horizontal bars, single hue */
+  .hbar2-row { display: grid; grid-template-columns: 230px 1fr 70px; align-items: center; gap: 10px; padding: 4px 0; }
+  .hbar2-label { font-size: 12px; color: var(--text-secondary); text-align: right; }
+  .hbar2-track { position: relative; height: 18px; }
+  .hbar2-fill { position: absolute; left: 0; top: 1px; height: 16px; background: var(--status-critical); border-radius: 0 4px 4px 0; }
+  .hbar2-value { font-size: 12px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+
+  details.tbl { margin-top: 14px; }
+  details.tbl summary { cursor: pointer; font-size: 12px; color: var(--text-secondary); }
+  details.tbl table { border-collapse: collapse; margin-top: 10px; font-size: 12px; }
+  details.tbl th, details.tbl td { text-align: left; padding: 4px 10px 4px 0; border-bottom: 1px solid var(--grid); font-variant-numeric: tabular-nums; }
+  details.tbl th { color: var(--text-muted); font-weight: 500; }
+
+  .detail-wrap { max-height: 480px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px; }
+  table.detail { width: 100%; border-collapse: collapse; font-size: 12px; }
+  table.detail th, table.detail td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+  table.detail td { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+  table.detail td.ex-col { color: var(--text-primary); }
+  table.detail thead th {
+    position: sticky; top: 0; background: var(--surface-1); color: var(--text-muted);
+    font-weight: 500; cursor: pointer; user-select: none; border-bottom: 1px solid var(--baseline);
+  }
+  table.detail thead th:hover { color: var(--text-primary); }
+  table.detail thead th .arrow { margin-left: 4px; opacity: 0.5; font-size: 10px; }
+  table.detail td.pass-cell { font-weight: 600; }
+  table.detail td.pass-cell.pass { color: var(--status-good); }
+  table.detail td.pass-cell.fail { color: var(--status-critical); }
+  .detail-controls { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+  .detail-controls select, .detail-controls input {
+    font: inherit; font-size: 12px; color: var(--text-primary); background: var(--surface-1);
+    border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px;
+  }
+  .detail-count { font-size: 11px; color: var(--text-muted); }
+
+  /* Exercise usefulness scatter */
+  .scatter-wrap { overflow-x: auto; }
+  .scatter-svg text { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .scatter-gridline { stroke: var(--grid); stroke-width: 1; }
+  .scatter-axis { stroke: var(--baseline); stroke-width: 1; }
+  .scatter-axis-label { font-size: 11px; fill: var(--text-muted); }
+  .scatter-point-label { font-size: 10px; fill: var(--text-secondary); }
+  .scatter-point { stroke: var(--surface-1); stroke-width: 2; cursor: default; }
+  .scatter-quadrant-label { font-size: 10px; fill: var(--text-muted); font-style: italic; }
+
+  table.useful { width: 100%; border-collapse: collapse; font-size: 12px; }
+  table.useful th, table.useful td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+  table.useful td { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+  table.useful td.ex-col { color: var(--text-primary); }
+  table.useful thead th { color: var(--text-muted); font-weight: 500; cursor: pointer; user-select: none; border-bottom: 1px solid var(--baseline); }
+  table.useful thead th:hover { color: var(--text-primary); }
+  table.useful thead th .arrow { margin-left: 4px; opacity: 0.5; font-size: 10px; }
+
+  .spark { display: flex; align-items: flex-end; gap: 1px; height: 22px; width: 74px; }
+  .spark-bar { flex: 1; min-width: 3px; border-radius: 1px 1px 0 0; }
+  .spark-bar.pass { background: var(--status-good); }
+  .spark-bar.fail { background: var(--status-critical); }
+
+  /* Token-generated strip plot */
+  .token-dot { fill: var(--seq-blue); opacity: 0.28; cursor: default; }
+  .token-avg-dot { fill: var(--seq-blue); stroke-width: 3; cursor: default; }
+  .token-avg-line { stroke: var(--seq-blue); stroke-width: 2; fill: none; opacity: 0.55; }
+  .token-x-label { font-size: 10px; fill: var(--text-secondary); }
+  circle.token-dot { transition: opacity 0.1s; }
+  circle.token-dot.token-dot-active { opacity: 1; stroke: var(--surface-1); stroke-width: 1.5; }
+  circle.token-dot.token-dot-dim { opacity: 0.06; }
+  .token-avg-dot.token-avg-dim { opacity: 0.35; }
+  .token-trace-line { stroke: var(--seq-blue); stroke-width: 1.5; stroke-dasharray: 3 3; fill: none; opacity: 0; pointer-events: none; transition: opacity 0.1s; }
+  .token-baseline-line { stroke: var(--text-muted); stroke-width: 1; stroke-dasharray: 4 3; opacity: 0.6; }
+
+  /* Pass-vs-fail cost spread, per exercise */
+  .cost-dot { opacity: 0.32; cursor: default; }
+  .cost-dot.pass { fill: var(--status-good); }
+  .cost-dot.fail { fill: var(--status-critical); }
+  .cost-avg-dot { stroke: var(--surface-1); stroke-width: 2; cursor: default; }
+  .cost-avg-dot.pass { fill: var(--status-good); }
+  .cost-avg-dot.fail { fill: var(--status-critical); }
+  .cost-gap-line { stroke: var(--text-muted); stroke-width: 1.5; stroke-dasharray: 3 3; opacity: 0.7; }
+  .cost-gap-label { font-size: 9px; fill: var(--text-muted); }
+  .cost-x-label { font-size: 10px; fill: var(--text-secondary); }
+  .cost-panel-label { font-size: 11px; font-weight: 600; color: var(--text-secondary); margin: 12px 0 2px; }
+  .cost-panel-label:first-of-type { margin-top: 0; }
+
+  [data-tooltip] { position: relative; }
+
+  .tt {
+    position: fixed; pointer-events: none; background: var(--surface-1); color: var(--text-primary);
+    border: 1px solid var(--border); box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+    font-size: 11px; line-height: 1.5; padding: 7px 10px; border-radius: 6px;
+    white-space: normal; max-width: 320px; width: max-content; z-index: 10;
+    opacity: 0; transform: translateY(4px); transition: opacity 0.08s ease;
+  }
+  .tt.show { opacity: 1; }
+  .tt-rule { border: none; border-top: 1px solid var(--border); margin: 5px 0; }
+</style>
+</head>
+<body>
+<div class="viz-root">
+
+  <div class="page-head">
+    <h1>Aider polyglot eval — Qwen3.6-35B-A3B model variants</h1>
+    <button class="theme-toggle" id="themeToggle" type="button">Toggle dark mode</button>
+  </div>
+  <p class="subhead" id="subhead"></p>
+
+  <div class="quant-legend" id="quantLegend">
+    <span style="color:var(--text-muted)">Quant, everywhere a model is named:</span>
+  </div>
+
+  <div class="stat-row" id="statRow"></div>
+
+  <div class="card">
+    <h2>Pass rate by model, on the shared <span id="shortlistN1">15</span>-task shortlist</h2>
+    <p class="desc">Every model below was run against the same <span id="shortlistN2">15</span> (language, exercise) tasks, so this is the one apples-to-apples comparison in the dataset. A task with zero surviving runs (e.g. voided by a harness bug) silently drops out rather than counting as a fail. Models tied on pass rate are broken by average tries-to-pass — fewer tries ranks higher. The main model's other <span id="mainExtraTasks">210</span> tasks aren't included here — see its full-run figure in the stat row above.</p>
+    <div id="chart1"></div>
+  </div>
+
+  <div class="card">
+    <h2>Generation speed on passing runs</h2>
+    <p class="desc">Completion tokens per second of wall-clock time, averaged over each model's passing shortlist runs. Duration and token counts both include every internal retry within a run, so this cancels out most of the "more tries = more work" effect — it's throughput, not luck.</p>
+    <div class="detail-controls">
+      <label for="speedExFilter" style="font-size:12px;color:var(--text-secondary)">Exercise</label>
+      <select id="speedExFilter"><option value="">All (aggregate)</option></select>
+      <span class="detail-count" id="speedCount"></span>
+    </div>
+    <div id="chart5"></div>
+  </div>
+
+  <div class="card">
+    <h2>Tokens generated per passing run</h2>
+    <p class="desc">Tokens per pass, <b>normalized</b> to each exercise's own difficulty — 1.0× is the average token cost among models that passed that exercise, so a model that mostly solved cheap exercises isn't flattered and one that solved expensive ones (like <code>clock</code>, ~2.4× the shortlist average) isn't unfairly penalized. All three panels share one column order, so you can see whether a model's token cost, wall-clock cost, and retry cost all tell the same story. Each faint dot is one passing run; the bold dot per model is the average, connected to trace the trend. Tries taken is jittered slightly to keep identical values from stacking into one dot.</p>
+    <div class="detail-controls">
+      <label for="tokensExFilter" style="font-size:12px;color:var(--text-secondary)">Exercise</label>
+      <select id="tokensExFilter"><option value="">All (aggregate)</option></select>
+      <label for="tokensSortBy" style="font-size:12px;color:var(--text-secondary)">Sort columns by</label>
+      <select id="tokensSortBy">
+        <option value="tokens">Tokens</option>
+        <option value="duration">Duration</option>
+        <option value="tries">Tries taken</option>
+      </select>
+      <button class="theme-toggle" id="tokenModeToggle" type="button">Show raw token counts</button>
+      <span class="detail-count" id="tokensCount"></span>
+    </div>
+    <div class="cost-panel-label">Tokens</div>
+    <div id="chart6"></div>
+    <div class="cost-panel-label">Duration</div>
+    <div id="chart6Duration"></div>
+    <div class="cost-panel-label">Tries taken</div>
+    <div id="chart6Tries"></div>
+    <div class="legend">
+      <div class="legend-item"><span class="swatch" style="background:var(--seq-blue);opacity:0.35;border-radius:50%"></span>Individual passing run</div>
+      <div class="legend-item"><span class="swatch" style="background:var(--seq-blue);border-radius:50%"></span>Model average</div>
+      <div class="legend-item" id="tokenBaselineLegendItem"><span class="swatch" style="background:var(--text-muted)"></span>1.0× = typical for that exercise</div>
+      <div class="legend-item">Hover a dot to trace that exercise across every model</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Quality vs. token cost</h2>
+    <p class="desc">Each point is a model: pass rate on the <span id="shortlistN3">15</span>-task shortlist against average tokens per pass, normalized to exercise difficulty (same 1.0× = typical basis as the chart above). Top-left is the efficiency sweet spot — high accuracy for cheap; bottom-right is the model to cut. Bubble size is passing-run count.</p>
+    <div id="qualityChart"></div>
+  </div>
+
+  <div class="card">
+    <h2>Pass / fail by task × model</h2>
+    <p class="desc">Rows ranked top-to-bottom by task quality (discriminative power, rewarded; cost and inconsistency, penalized — same composite as the "quality" column below). Columns ranked left-to-right by average tokens generated, cheapest model first. Green = passed (majority of runs, for tasks re-run more than once), shaded by how many tries it took on average — dark green means it passed fast, pale green means it barely scraped by. Red = failed. Numbers inside a cell show pass/total only when a task was attempted more than once for that model.</p>
+    <div class="heatmap-wrap"><div id="chart2"></div></div>
+    <div class="legend">
+      <div class="legend-item ramp-legend"><span class="ramp-bar"></span>Pass, 1 → 6 tries</div>
+      <div class="legend-item"><span class="swatch" style="background:var(--status-critical)"></span>Fail</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Exercise usefulness — is this task worth keeping?</h2>
+    <p class="desc">Each of the <span id="shortlistN4">15</span> shortlist tasks with surviving data, plotted by cost (average wall-clock time, all models) against how much it splits the model field (0 = every model landed the same way, pass or fail; 1 = an even 50/50 split — the most information a task can give). A task voided entirely (e.g. by a harness bug) is left off rather than shown as a false 0/0. Bubble size is attempt count; color is which way the split leans. Cheap + high-split (top-left) is the best-value task; expensive + low-split (bottom-right) is the prime candidate to cut. The table's <b>Quality</b> column folds discriminative power, cost, and flakiness into one number (higher = better) — it's what orders the heatmap's rows above.</p>
+    <div class="scatter-wrap"><div id="scatterChart"></div></div>
+    <div class="legend">
+      <div class="legend-item"><span class="swatch" style="background:var(--status-critical)"></span>Mostly fails</div>
+      <div class="legend-item"><span class="swatch" style="background:var(--text-muted)"></span>Split evenly</div>
+      <div class="legend-item"><span class="swatch" style="background:var(--status-good)"></span>Mostly passes</div>
+    </div>
+    <details class="tbl" open>
+      <summary>Per-exercise detail — click a column to sort</summary>
+      <div style="margin-top:10px;"><table class="useful" id="usefulTable"></table></div>
+    </details>
+  </div>
+
+  <div class="card">
+    <h2>Pass vs. fail cost, per exercise</h2>
+    <p class="desc">Every attempt at each shortlist exercise — passes in green, fails in red — showing how much work got burned whether or not it landed. The bold dots are the pass/fail averages; the dashed line is the gap between them. Tokens and duration share one column order (sorted by the <b>token</b> gap, biggest first) so the two panels compare directly — a mismatch between them (e.g. a big token gap but a small time gap) means passes and fails take a similar amount of wall-clock time despite very different token counts, often a sign of throttling or a slow non-generation step.</p>
+    <div class="detail-count" id="costCount" style="margin-bottom:6px"></div>
+    <div class="cost-panel-label">Tokens</div>
+    <div id="costSpreadChartTokens"></div>
+    <div class="cost-panel-label">Duration</div>
+    <div id="costSpreadChartDuration"></div>
+    <div class="legend">
+      <div class="legend-item"><span class="swatch" style="background:var(--status-good);opacity:0.4;border-radius:50%"></span>Individual pass</div>
+      <div class="legend-item"><span class="swatch" style="background:var(--status-critical);opacity:0.4;border-radius:50%"></span>Individual fail</div>
+      <div class="legend-item"><span class="swatch" style="background:var(--status-good);border-radius:50%"></span>Pass average</div>
+      <div class="legend-item"><span class="swatch" style="background:var(--status-critical);border-radius:50%"></span>Fail average</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Per-test breakdown</h2>
+    <p class="desc">Every individual run behind the chart above — one row per (task, model, attempt). Click a column header to sort.</p>
+    <div class="detail-controls">
+      <select id="detailModelFilter"><option value="">All models</option></select>
+      <span class="detail-count" id="detailCount"></span>
+    </div>
+    <div class="detail-wrap"><table class="detail" id="detailTable"></table></div>
+  </div>
+
+  <div class="card">
+    <h2>Tries taken before the run ended, across all models</h2>
+    <p class="desc">Most passes land by try 2–3. Try 6 was the retry ceiling for most configs — the runs that reach it are almost entirely failures that never converged before the budget ran out.</p>
+    <div id="chart3"></div>
+  </div>
+
+  <div class="card">
+    <h2>What failed runs had in common</h2>
+    <p class="desc">Share of the <span id="failN">156</span> failed runs that exhibited each symptom (not mutually exclusive — a run can hit more than one).</p>
+    <div id="chart4"></div>
+  </div>
+
+  <div class="tt" id="tooltip"></div>
+
+</div>
+
+<script id="data" type="application/json">
+__DATA__
+</script>
+
+<script>
+const data = JSON.parse(document.getElementById('data').textContent);
+const tt = document.getElementById('tooltip');
+
+// Quant identity, consistent across every chart. Colors are CSS vars (theme-aware);
+// quant name always rides along in the tooltip/legend so color is never the only signal.
+const QUANT_VAR = { 'IQ3_XXS': '--quant-iq3xxs', 'IQ4_XS': '--quant-iq4xs', 'Q4_K_XL': '--quant-q4kxl' };
+function quantOf(modelLabel) { return data.model_quant[modelLabel] || 'other'; }
+function quantColorVar(modelLabel) { return `var(${QUANT_VAR[quantOf(modelLabel)] || '--quant-other'})`; }
+function quantDotHtml(modelLabel) {
+  return `<span class="quant-dot" style="background:${quantColorVar(modelLabel)}" title="${quantOf(modelLabel)}"></span>`;
+}
+
+function showTip(evt, html) {
+  tt.innerHTML = html;
+  tt.classList.add('show');
+  moveTip(evt);
+}
+function moveTip(evt) {
+  tt.style.left = (evt.clientX + 14) + 'px';
+  tt.style.top = (evt.clientY + 14) + 'px';
+}
+function hideTip() { tt.classList.remove('show'); }
+
+// ---- header / stats ----
+document.getElementById('subhead').textContent =
+  `${data.summary.total_runs} runs across ${data.summary.distinct_tasks} (language, exercise) tasks — ${data.summary.total_exercise_names} exercise names, several reused across language tracks — and ${data.summary.total_models} model variants, all quantized/pruned/distilled versions of the same 35B-A3B base.`;
+
+const stats = [
+  { label: 'Total runs', value: data.summary.total_runs, sub: `${data.summary.overall_pass} pass / ${data.summary.overall_fail} fail` },
+  { label: 'Overall pass rate', value: Math.round(data.summary.overall_pass / data.summary.total_runs * 1000) / 10 + '%', sub: 'across all models & tasks' },
+  { label: 'Model variants', value: data.summary.total_models, sub: `${data.summary.shortlist_n} tasks shared by all` },
+  { label: data.summary.main_label + ' (full run)', value: Math.round(data.summary.main_full_pass / data.summary.main_full_n * 1000) / 10 + '%', sub: `${data.summary.main_full_pass}/${data.summary.main_full_n} on the full ${data.summary.distinct_tasks}-task suite` },
+];
+document.getElementById('statRow').innerHTML = stats.map(s =>
+  `<div class="stat-tile"><div class="stat-label">${s.label}</div><div class="stat-value">${s.value}</div><div class="stat-sub">${s.sub}</div></div>`
+).join('');
+
+const quantsPresent = [...new Set(Object.values(data.model_quant))].sort();
+document.getElementById('quantLegend').insertAdjacentHTML('beforeend', quantsPresent.map(q =>
+  `<span class="legend-item"><span class="quant-dot" style="background:var(${QUANT_VAR[q] || '--quant-other'})"></span>${q}</span>`
+).join(''));
+
+// Numbers baked into prose — kept in sync with the data so a task or run that gets
+// deleted (e.g. voided by a harness bug) doesn't leave stale counts on the page.
+['shortlistN1', 'shortlistN2', 'shortlistN3', 'shortlistN4'].forEach(id => {
+  document.getElementById(id).textContent = data.summary.shortlist_n;
+});
+document.getElementById('mainExtraTasks').textContent = data.summary.main_full_n - data.summary.shortlist_n;
+document.getElementById('failN').textContent = data.fail_n;
+
+// ---- chart 1: horizontal bars ----
+const c1 = document.getElementById('chart1');
+data.chart1.forEach(d => {
+  const row = document.createElement('div');
+  row.className = 'hbar-row';
+  const isMain = d.label.includes('(main)');
+  row.innerHTML = `
+    <div class="hbar-label${isMain ? ' main' : ''}" title="${d.label}">${quantDotHtml(d.label)}<span class="label-text">${d.label}</span></div>
+    <div class="hbar-track"><div class="hbar-fill" style="width:${d.rate}%"></div></div>
+    <div class="hbar-value">${d.rate.toFixed(1)}% (${d.pass}/${d.n})</div>
+  `;
+  const fill = row.querySelector('.hbar-fill');
+  const triesLine = d.avg_tries_on_pass !== null ? `<br>avg ${d.avg_tries_on_pass.toFixed(1)} tries to pass` : '';
+  fill.addEventListener('mousemove', e => showTip(e, `<b>${d.label}</b><br>${d.pass} / ${d.n} passed &middot; ${d.rate.toFixed(1)}%${triesLine}`));
+  fill.addEventListener('mouseleave', hideTip);
+  c1.appendChild(row);
+});
+
+// table fallback for chart 1
+const t1 = document.createElement('details');
+t1.className = 'tbl';
+t1.innerHTML = `<summary>View as table</summary><table>
+  <thead><tr><th>Model</th><th>Pass</th><th>Total</th><th>Rate</th><th>Avg tries to pass</th></tr></thead>
+  <tbody>${data.chart1.map(d => `<tr><td>${d.label}</td><td>${d.pass}</td><td>${d.n}</td><td>${d.rate.toFixed(1)}%</td><td>${d.avg_tries_on_pass !== null ? d.avg_tries_on_pass.toFixed(2) : '—'}</td></tr>`).join('')}</tbody>
+</table>`;
+c1.parentElement.appendChild(t1);
+
+// ---- charts 5 & 6: speed and tokens-generated on passing runs, filterable by exercise ----
+function renderPerfBarChart(container, items, { valueKey, format, unit, countEl }) {
+  container.innerHTML = '';
+  const usable = items.filter(d => d.n > 0);
+  const maxVal = Math.max(...usable.map(d => d[valueKey]), 1);
+  if (countEl) countEl.textContent = `${usable.length} of ${items.length} models have passing runs here`;
+  usable.sort((a, b) => b[valueKey] - a[valueKey]);
+  usable.forEach(d => {
+    const row = document.createElement('div');
+    row.className = 'hbar-row';
+    const isMain = d.model.includes('(main)');
+    row.innerHTML = `
+      <div class="hbar-label${isMain ? ' main' : ''}" title="${d.model}">${quantDotHtml(d.model)}<span class="label-text">${d.model}</span></div>
+      <div class="hbar-track"><div class="hbar-fill" style="width:${d[valueKey] / maxVal * 100}%"></div></div>
+      <div class="hbar-value">${format(d[valueKey])}${unit} (n=${d.n})</div>
+    `;
+    const fill = row.querySelector('.hbar-fill');
+    fill.addEventListener('mousemove', e => showTip(e, `<b>${d.model}</b><br>${format(d[valueKey])}${unit} &middot; ${d.n} passing run${d.n === 1 ? '' : 's'}`));
+    fill.addEventListener('mouseleave', hideTip);
+    container.appendChild(row);
+  });
+  if (!usable.length) {
+    container.innerHTML = '<p style="font-size:12px;color:var(--text-muted);">No model passed this exercise.</p>';
+  }
+}
+
+// Deterministic beeswarm-style offsets: 0, +1, -1, +2, -2, ... so points fan out
+// symmetrically around a model's column without relying on Math.random().
+function beeswarmOffsets(n, spacing) {
+  const offs = [0];
+  let k = 1;
+  while (offs.length < n) {
+    offs.push(k * spacing);
+    if (offs.length < n) offs.push(-k * spacing);
+    k++;
+  }
+  return offs;
+}
+
+// order: optional fixed array of model labels — when given, columns follow it instead
+// of self-sorting by this panel's own value (used when another panel owns the sort).
+function renderTokenScatter(container, points, countEl, mode, order) {
+  container.innerHTML = '';
+  const valueKey = mode === 'raw' ? 'tokens' : 'tokens_norm';
+  const byModel = new Map();
+  points.forEach(p => {
+    if (!byModel.has(p.model)) byModel.set(p.model, []);
+    byModel.get(p.model).push(p);
+  });
+  const modelList = order || [...byModel.keys()];
+  const models = modelList.map(m => {
+    const pts = byModel.get(m);
+    if (!pts || !pts.length) return null;
+    return { model: m, pts, avg: pts.reduce((s, p) => s + p[valueKey], 0) / pts.length };
+  }).filter(Boolean);
+  if (!order) models.sort((a, b) => a.avg - b.avg);
+
+  if (countEl) countEl.textContent = `${models.length} of ${data.perf.matrix_models.length} models have passing runs here`;
+  if (!models.length) {
+    container.innerHTML = '<p style="font-size:12px;color:var(--text-muted);">No model passed this exercise.</p>';
+    return [];
+  }
+
+  const W = 880, H = 380, M = { top: 16, right: 20, bottom: 76, left: 60 };
+  const innerW = W - M.left - M.right, innerH = H - M.top - M.bottom;
+  const yMax = Math.max(...points.map(p => p[valueKey])) * 1.08;
+  const yScale = v => M.top + (1 - v / yMax) * innerH;
+  const bandW = innerW / models.length;
+  const xCenter = i => M.left + bandW * (i + 0.5);
+
+  let gridSvg = '';
+  const yTicks = 5;
+  for (let i = 0; i <= yTicks; i++) {
+    const v = (i / yTicks) * yMax;
+    const y = yScale(v);
+    gridSvg += `<line class="scatter-gridline" x1="${M.left}" x2="${W - M.right}" y1="${y}" y2="${y}"/>`;
+    const label = mode === 'raw' ? Math.round(v).toLocaleString() : v.toFixed(2) + '×';
+    gridSvg += `<text class="scatter-axis-label" x="${M.left - 8}" y="${y + 4}" text-anchor="end">${label}</text>`;
+  }
+  if (mode !== 'raw' && yMax > 1) {
+    const y1 = yScale(1);
+    gridSvg += `<line class="token-baseline-line" x1="${M.left}" x2="${W - M.right}" y1="${y1}" y2="${y1}"/>`;
+  }
+  gridSvg += `<line class="scatter-axis" x1="${M.left}" x2="${M.left}" y1="${M.top}" y2="${H - M.bottom}"/>`;
+  gridSvg += `<line class="scatter-axis" x1="${M.left}" x2="${W - M.right}" y1="${H - M.bottom}" y2="${H - M.bottom}"/>`;
+  const yAxisLabel = mode === 'raw' ? 'completion tokens (passing runs)' : 'tokens relative to that exercise’s baseline (1.0× = typical)';
+  gridSvg += `<text class="scatter-axis-label" x="${-(M.top + innerH / 2)}" y="16" text-anchor="middle" transform="rotate(-90)">${yAxisLabel}</text>`;
+
+  let dotsSvg = '', lineSvg = '', xLabelSvg = '';
+  const avgPoints = [];
+  models.forEach((m, i) => {
+    const cx = xCenter(i);
+    const spacing = Math.min(7, (bandW * 0.42) / Math.ceil(m.pts.length / 2));
+    const offsets = beeswarmOffsets(m.pts.length, spacing);
+    m.pts.forEach((p, j) => {
+      const x = cx + offsets[j];
+      const y = yScale(p[valueKey]);
+      dotsSvg += `<circle class="token-dot" data-model="${m.model}" data-exercise="${p.exercise}" data-tokens="${p.tokens}" data-norm="${p.tokens_norm}" data-tries="${p.tries}" cx="${x}" cy="${y}" r="3.5"/>`;
+    });
+    const avgY = yScale(m.avg);
+    avgPoints.push([cx, avgY]);
+    xLabelSvg += `<circle class="quant-dot-svg" cx="${cx}" cy="${H - M.bottom + 6}" r="4" fill="${quantColorVar(m.model)}"/>`;
+    xLabelSvg += `<text class="token-x-label" x="${cx}" y="${H - M.bottom + 14}" text-anchor="end" transform="rotate(-38 ${cx} ${H - M.bottom + 14})">${m.model}</text>`;
+  });
+  lineSvg = `<polyline class="token-avg-line" points="${avgPoints.map(p => p.join(',')).join(' ')}"/>`;
+  const avgDotsSvg = models.map((m, i) => {
+    const [cx, cy] = avgPoints[i];
+    const avgLabel = mode === 'raw' ? Math.round(m.avg).toLocaleString() : m.avg.toFixed(2) + '×';
+    return `<circle class="token-avg-dot" style="stroke:${quantColorVar(m.model)}" data-model="${m.model}" data-avg="${avgLabel}" data-n="${m.pts.length}" cx="${cx}" cy="${cy}" r="7"/>`;
+  }).join('');
+
+  container.innerHTML = `<svg class="scatter-svg" viewBox="0 0 ${W} ${H}" width="100%" style="max-width:${W}px">${gridSvg}${lineSvg}<polyline class="token-trace-line" points=""/>${dotsSvg}${avgDotsSvg}${xLabelSvg}</svg>`;
+
+  const traceLine = container.querySelector('.token-trace-line');
+  function highlightExercise(exercise) {
+    const matched = [];
+    container.querySelectorAll('circle.token-dot').forEach(d => {
+      if (d.dataset.exercise === exercise) {
+        d.setAttribute('r', 5.5);
+        d.classList.add('token-dot-active');
+        matched.push(d);
+      } else {
+        d.classList.add('token-dot-dim');
+      }
+    });
+    container.querySelectorAll('circle.token-avg-dot').forEach(d => d.classList.add('token-avg-dim'));
+    matched.sort((a, b) => (+a.getAttribute('cx')) - (+b.getAttribute('cx')));
+    traceLine.setAttribute('points', matched.map(d => `${d.getAttribute('cx')},${d.getAttribute('cy')}`).join(' '));
+    traceLine.style.opacity = matched.length > 1 ? 1 : 0;
+  }
+  function clearHighlight() {
+    container.querySelectorAll('circle.token-dot').forEach(d => {
+      d.setAttribute('r', 3.5);
+      d.classList.remove('token-dot-active', 'token-dot-dim');
+    });
+    container.querySelectorAll('circle.token-avg-dot').forEach(d => d.classList.remove('token-avg-dim'));
+    traceLine.style.opacity = 0;
+  }
+
+  container.querySelectorAll('circle.token-dot').forEach(c => {
+    c.addEventListener('mouseenter', () => highlightExercise(c.dataset.exercise));
+    c.addEventListener('mousemove', e => showTip(e,
+      `<b>${c.dataset.model}</b><br>${c.dataset.exercise}<br>${Number(c.dataset.tokens).toLocaleString()} tokens (${Number(c.dataset.norm).toFixed(2)}× exercise typical) &middot; ${c.dataset.tries} tries`));
+    c.addEventListener('mouseleave', () => { hideTip(); clearHighlight(); });
+  });
+  container.querySelectorAll('circle.token-avg-dot').forEach(c => {
+    c.addEventListener('mousemove', e => showTip(e,
+      `<b>${c.dataset.model}</b><br>avg ${c.dataset.avg} over ${c.dataset.n} passing run${c.dataset.n === '1' ? '' : 's'}`));
+    c.addEventListener('mouseleave', hideTip);
+  });
+
+  return models.map(m => m.model);
+}
+
+// Sibling panel to renderTokenScatter: same beeswarm/average/trace-line/quant-dot
+// mechanics, but with a *fixed* model order (so it lines up with another panel above
+// it) and a plain value accessor instead of the tokens raw/normalized mode switch.
+// "Nice" log-scale tick values (1, 2, 5 × 10^n) within [minV, maxV].
+function niceLogTicks(minV, maxV) {
+  const ticks = [];
+  let exp = Math.floor(Math.log10(minV));
+  while (Math.pow(10, exp) <= maxV * 1.01) {
+    for (const s of [1, 2, 5]) {
+      const v = s * Math.pow(10, exp);
+      if (v >= minV * 0.99 && v <= maxV * 1.01) ticks.push(v);
+    }
+    exp++;
+  }
+  return ticks;
+}
+
+function renderModelStripPlotFixed(container, points, order, { valueKey, format, unit, yAxisLabel, jitterY, logScale }) {
+  container.innerHTML = '';
+  const byModel = new Map();
+  points.forEach(p => {
+    if (!byModel.has(p.model)) byModel.set(p.model, []);
+    byModel.get(p.model).push(p);
+  });
+  const models = order.map(m => {
+    const pts = byModel.get(m);
+    if (!pts || !pts.length) return null;
+    return { model: m, pts, avg: pts.reduce((s, p) => s + p[valueKey], 0) / pts.length };
+  }).filter(Boolean);
+
+  if (!models.length) {
+    container.innerHTML = '<p style="font-size:12px;color:var(--text-muted);">No data.</p>';
+    return;
+  }
+
+  const W = 880, H = 300, M = { top: 16, right: 20, bottom: 76, left: 60 };
+  const innerW = W - M.left - M.right, innerH = H - M.top - M.bottom;
+  const allVals = points.map(p => p[valueKey]);
+  const yMax = Math.max(...allVals) * 1.08;
+  let yScale, tickVals;
+  if (logScale) {
+    const yMinLog = Math.max(0.01, Math.min(...allVals.filter(v => v > 0)));
+    const logMin = Math.log10(yMinLog), logMax = Math.log10(yMax);
+    yScale = v => M.top + (1 - (Math.log10(Math.max(v, yMinLog)) - logMin) / (logMax - logMin)) * innerH;
+    tickVals = niceLogTicks(yMinLog, yMax);
+  } else {
+    yScale = v => M.top + (1 - v / yMax) * innerH;
+    tickVals = Array.from({ length: 6 }, (_, i) => (i / 5) * yMax);
+  }
+  const bandW = innerW / models.length;
+  const xCenter = i => M.left + bandW * (i + 0.5);
+
+  let gridSvg = '';
+  tickVals.forEach(v => {
+    const y = yScale(v);
+    gridSvg += `<line class="scatter-gridline" x1="${M.left}" x2="${W - M.right}" y1="${y}" y2="${y}"/>`;
+    gridSvg += `<text class="scatter-axis-label" x="${M.left - 8}" y="${y + 4}" text-anchor="end">${format(v)}</text>`;
+  });
+  gridSvg += `<line class="scatter-axis" x1="${M.left}" x2="${M.left}" y1="${M.top}" y2="${H - M.bottom}"/>`;
+  gridSvg += `<line class="scatter-axis" x1="${M.left}" x2="${W - M.right}" y1="${H - M.bottom}" y2="${H - M.bottom}"/>`;
+  gridSvg += `<text class="scatter-axis-label" x="${-(M.top + innerH / 2)}" y="16" text-anchor="middle" transform="rotate(-90)">${yAxisLabel}${logScale ? ' (log scale)' : ''}</text>`;
+
+  let dotsSvg = '', xLabelSvg = '';
+  const avgPoints = [];
+  models.forEach((m, i) => {
+    const cx = xCenter(i);
+    const spacing = Math.min(7, (bandW * 0.42) / Math.ceil(m.pts.length / 2));
+    const offsets = beeswarmOffsets(m.pts.length, spacing);
+    // Values like tries-taken are small integers — several runs commonly land on the
+    // exact same value and would otherwise draw as one indistinguishable dot. Nudge
+    // only the ties apart vertically, deterministically, grouped by their exact value.
+    const yJitter = new Array(m.pts.length).fill(0);
+    if (jitterY) {
+      const byValue = new Map();
+      m.pts.forEach((p, j) => {
+        if (!byValue.has(p[valueKey])) byValue.set(p[valueKey], []);
+        byValue.get(p[valueKey]).push(j);
+      });
+      byValue.forEach(idxs => {
+        if (idxs.length > 1) {
+          const jOffsets = beeswarmOffsets(idxs.length, 2);
+          idxs.forEach((idx, k) => { yJitter[idx] = jOffsets[k]; });
+        }
+      });
+    }
+    m.pts.forEach((p, j) => {
+      const x = cx + offsets[j];
+      const y = yScale(p[valueKey]) + yJitter[j];
+      dotsSvg += `<circle class="token-dot" data-model="${m.model}" data-exercise="${p.exercise}" data-value="${p[valueKey]}" data-tries="${p.tries}" cx="${x}" cy="${y}" r="3.5"/>`;
+    });
+    avgPoints.push([cx, yScale(m.avg)]);
+    xLabelSvg += `<circle class="quant-dot-svg" cx="${cx}" cy="${H - M.bottom + 6}" r="4" fill="${quantColorVar(m.model)}"/>`;
+    xLabelSvg += `<text class="token-x-label" x="${cx}" y="${H - M.bottom + 14}" text-anchor="end" transform="rotate(-38 ${cx} ${H - M.bottom + 14})">${m.model}</text>`;
+  });
+  const lineSvg = `<polyline class="token-avg-line" points="${avgPoints.map(p => p.join(',')).join(' ')}"/>`;
+  const avgDotsSvg = models.map((m, i) => {
+    const [cx, cy] = avgPoints[i];
+    return `<circle class="token-avg-dot" style="stroke:${quantColorVar(m.model)}" data-model="${m.model}" data-avg="${format(m.avg)}" data-n="${m.pts.length}" cx="${cx}" cy="${cy}" r="7"/>`;
+  }).join('');
+
+  container.innerHTML = `<svg class="scatter-svg" viewBox="0 0 ${W} ${H}" width="100%" style="max-width:${W}px">${gridSvg}${lineSvg}<polyline class="token-trace-line" points=""/>${dotsSvg}${avgDotsSvg}${xLabelSvg}</svg>`;
+
+  const traceLine = container.querySelector('.token-trace-line');
+  function highlightExercise(exercise) {
+    const matched = [];
+    container.querySelectorAll('circle.token-dot').forEach(d => {
+      if (d.dataset.exercise === exercise) {
+        d.setAttribute('r', 5.5);
+        d.classList.add('token-dot-active');
+        matched.push(d);
+      } else {
+        d.classList.add('token-dot-dim');
+      }
+    });
+    container.querySelectorAll('circle.token-avg-dot').forEach(d => d.classList.add('token-avg-dim'));
+    matched.sort((a, b) => (+a.getAttribute('cx')) - (+b.getAttribute('cx')));
+    traceLine.setAttribute('points', matched.map(d => `${d.getAttribute('cx')},${d.getAttribute('cy')}`).join(' '));
+    traceLine.style.opacity = matched.length > 1 ? 1 : 0;
+  }
+  function clearHighlight() {
+    container.querySelectorAll('circle.token-dot').forEach(d => {
+      d.setAttribute('r', 3.5);
+      d.classList.remove('token-dot-active', 'token-dot-dim');
+    });
+    container.querySelectorAll('circle.token-avg-dot').forEach(d => d.classList.remove('token-avg-dim'));
+    traceLine.style.opacity = 0;
+  }
+
+  container.querySelectorAll('circle.token-dot').forEach(c => {
+    c.addEventListener('mouseenter', () => highlightExercise(c.dataset.exercise));
+    c.addEventListener('mousemove', e => showTip(e,
+      `<b>${c.dataset.model}</b><br>${c.dataset.exercise}<br>${format(+c.dataset.value)}${unit} &middot; ${c.dataset.tries} tries`));
+    c.addEventListener('mouseleave', () => { hideTip(); clearHighlight(); });
+  });
+  container.querySelectorAll('circle.token-avg-dot').forEach(c => {
+    c.addEventListener('mousemove', e => showTip(e,
+      `<b>${c.dataset.model}</b><br>avg ${c.dataset.avg}${unit} over ${c.dataset.n} passing run${c.dataset.n === '1' ? '' : 's'}`));
+    c.addEventListener('mouseleave', hideTip);
+  });
+}
+
+const speedExFilter = document.getElementById('speedExFilter');
+const tokensExFilter = document.getElementById('tokensExFilter');
+[speedExFilter, tokensExFilter].forEach(sel => {
+  data.perf.exercise_order.forEach(ex => {
+    const opt = document.createElement('option');
+    opt.value = ex; opt.textContent = ex;
+    sel.appendChild(opt);
+  });
+});
+
+const c5 = document.getElementById('chart5');
+const c6 = document.getElementById('chart6');
+
+function currentPerf(exFilter) {
+  return exFilter ? data.perf.by_exercise[exFilter] : data.perf.overall;
+}
+function redrawSpeed() {
+  renderPerfBarChart(c5, currentPerf(speedExFilter.value), {
+    valueKey: 'avg_tokps', format: v => v.toFixed(1), unit: ' tok/s', countEl: document.getElementById('speedCount'),
+  });
+}
+let tokenMode = 'normalized';
+const tokenModeToggle = document.getElementById('tokenModeToggle');
+// Column order for all three panels comes from whichever metric is picked in the
+// "Sort columns by" select — not always the tokens panel — so any of the three can drive it.
+function computeModelOrder(points, valueKey) {
+  const byModel = new Map();
+  points.forEach(p => {
+    if (!byModel.has(p.model)) byModel.set(p.model, []);
+    byModel.get(p.model).push(p);
+  });
+  return [...byModel.entries()]
+    .map(([m, pts]) => ({ model: m, avg: pts.reduce((s, p) => s + p[valueKey], 0) / pts.length }))
+    .sort((a, b) => a.avg - b.avg)
+    .map(m => m.model);
+}
+
+const tokensSortBy = document.getElementById('tokensSortBy');
+function redrawTokens() {
+  const exFilter = tokensExFilter.value;
+  const points = exFilter ? data.perf.points.filter(p => p.exercise === exFilter) : data.perf.points;
+  const sortValueKey = { tokens: tokenMode === 'raw' ? 'tokens' : 'tokens_norm', duration: 'duration', tries: 'tries_num' }[tokensSortBy.value];
+  const order = computeModelOrder(points, sortValueKey);
+  renderTokenScatter(c6, points, document.getElementById('tokensCount'), tokenMode, order);
+  document.getElementById('tokenBaselineLegendItem').style.display = tokenMode === 'raw' ? 'none' : 'flex';
+  renderModelStripPlotFixed(document.getElementById('chart6Duration'), points, order, {
+    valueKey: 'duration', format: v => Math.round(v).toLocaleString(), unit: 's', yAxisLabel: 'duration (s)', logScale: true,
+  });
+  renderModelStripPlotFixed(document.getElementById('chart6Tries'), points, order, {
+    valueKey: 'tries_num', format: v => v.toFixed(1), unit: ' tries', yAxisLabel: 'tries taken', jitterY: true,
+  });
+}
+tokensSortBy.addEventListener('change', redrawTokens);
+speedExFilter.addEventListener('change', redrawSpeed);
+tokensExFilter.addEventListener('change', redrawTokens);
+tokenModeToggle.addEventListener('click', () => {
+  tokenMode = tokenMode === 'normalized' ? 'raw' : 'normalized';
+  tokenModeToggle.textContent = tokenMode === 'normalized' ? 'Show raw token counts' : 'Show normalized (default)';
+  redrawTokens();
+});
+redrawSpeed();
+redrawTokens();
+
+// ---- pass vs. fail cost, per exercise ----
+// Groups points by exercise and computes pass/fail averages + gap for one metric.
+function computeCostStats(points, metric) {
+  const byEx = new Map();
+  points.forEach(p => {
+    if (!byEx.has(p.exercise)) byEx.set(p.exercise, []);
+    byEx.get(p.exercise).push(p);
+  });
+  const stats = new Map();
+  byEx.forEach((pts, ex) => {
+    const passPts = pts.filter(p => p.pass);
+    const failPts = pts.filter(p => !p.pass);
+    const avgPass = passPts.length ? passPts.reduce((s, p) => s + p[metric], 0) / passPts.length : null;
+    const avgFail = failPts.length ? failPts.reduce((s, p) => s + p[metric], 0) / failPts.length : null;
+    const gap = (avgPass !== null && avgFail !== null) ? avgFail - avgPass : null;
+    stats.set(ex, { ex, pts, passPts, failPts, avgPass, avgFail, gap });
+  });
+  return stats;
+}
+
+// order: fixed array of exercise labels (shared across panels so columns line up).
+function renderCostSpread(container, points, metric, order) {
+  container.innerHTML = '';
+  const unit = metric === 'tokens' ? ' tok' : 's';
+  const statsByEx = computeCostStats(points, metric);
+  const exercises = order.map(ex => statsByEx.get(ex)).filter(Boolean);
+
+  if (!exercises.length) {
+    container.innerHTML = '<p style="font-size:12px;color:var(--text-muted);">No data.</p>';
+    return;
+  }
+
+  const W = 880, H = 340, M = { top: 16, right: 20, bottom: 74, left: 60 };
+  const innerW = W - M.left - M.right, innerH = H - M.top - M.bottom;
+  const allVals = points.map(p => p[metric]);
+  const yMax = Math.max(...allVals) * 1.08;
+  const logScale = metric === 'duration';
+  let yScale, tickVals;
+  if (logScale) {
+    const yMinLog = Math.max(0.01, Math.min(...allVals.filter(v => v > 0)));
+    const logMin = Math.log10(yMinLog), logMax = Math.log10(yMax);
+    yScale = v => M.top + (1 - (Math.log10(Math.max(v, yMinLog)) - logMin) / (logMax - logMin)) * innerH;
+    tickVals = niceLogTicks(yMinLog, yMax);
+  } else {
+    yScale = v => M.top + (1 - v / yMax) * innerH;
+    tickVals = Array.from({ length: 6 }, (_, i) => (i / 5) * yMax);
+  }
+  const bandW = innerW / exercises.length;
+  const xCenter = i => M.left + bandW * (i + 0.5);
+
+  let gridSvg = '';
+  tickVals.forEach(v => {
+    const y = yScale(v);
+    gridSvg += `<line class="scatter-gridline" x1="${M.left}" x2="${W - M.right}" y1="${y}" y2="${y}"/>`;
+    const label = metric === 'tokens' ? Math.round(v).toLocaleString() : Math.round(v) + 's';
+    gridSvg += `<text class="scatter-axis-label" x="${M.left - 8}" y="${y + 4}" text-anchor="end">${label}</text>`;
+  });
+  gridSvg += `<line class="scatter-axis" x1="${M.left}" x2="${M.left}" y1="${M.top}" y2="${H - M.bottom}"/>`;
+  gridSvg += `<line class="scatter-axis" x1="${M.left}" x2="${W - M.right}" y1="${H - M.bottom}" y2="${H - M.bottom}"/>`;
+  const yAxisLabel = metric === 'tokens' ? 'completion tokens' : 'duration (s), log scale';
+  gridSvg += `<text class="scatter-axis-label" x="${-(M.top + innerH / 2)}" y="16" text-anchor="middle" transform="rotate(-90)">${yAxisLabel}</text>`;
+
+  let dotsSvg = '', gapSvg = '', xLabelSvg = '';
+  exercises.forEach((e, i) => {
+    const cx = xCenter(i);
+    const spacing = Math.min(7, (bandW * 0.42) / Math.ceil(e.pts.length / 2));
+    const offsets = beeswarmOffsets(e.pts.length, spacing);
+    e.pts.forEach((p, j) => {
+      const x = cx + offsets[j];
+      const y = yScale(p[metric]);
+      dotsSvg += `<circle class="cost-dot ${p.pass ? 'pass' : 'fail'}" data-exercise="${e.ex}" data-model="${p.model}" data-value="${p[metric]}" data-pass="${p.pass}" data-tries="${p.tries}" cx="${x}" cy="${y}" r="3.5"/>`;
+    });
+    if (e.avgPass !== null && e.avgFail !== null) {
+      gapSvg += `<line class="cost-gap-line" x1="${cx}" x2="${cx}" y1="${yScale(e.avgPass)}" y2="${yScale(e.avgFail)}"/>`;
+    }
+    if (e.avgPass !== null) {
+      dotsSvg += `<circle class="cost-avg-dot pass" data-exercise="${e.ex}" data-kind="pass average" data-value="${Math.round(e.avgPass)}" data-n="${e.passPts.length}" cx="${cx}" cy="${yScale(e.avgPass)}" r="6"/>`;
+    }
+    if (e.avgFail !== null) {
+      dotsSvg += `<circle class="cost-avg-dot fail" data-exercise="${e.ex}" data-kind="fail average" data-value="${Math.round(e.avgFail)}" data-n="${e.failPts.length}" cx="${cx}" cy="${yScale(e.avgFail)}" r="6"/>`;
+    }
+    xLabelSvg += `<text class="cost-x-label" x="${cx}" y="${H - M.bottom + 14}" text-anchor="end" transform="rotate(-38 ${cx} ${H - M.bottom + 14})">${e.ex}</text>`;
+  });
+
+  container.innerHTML = `<svg class="scatter-svg" viewBox="0 0 ${W} ${H}" width="100%" style="max-width:${W}px">${gridSvg}${gapSvg}${dotsSvg}${xLabelSvg}</svg>`;
+
+  container.querySelectorAll('circle.cost-dot').forEach(c => {
+    c.addEventListener('mousemove', e => showTip(e,
+      `<b>${c.dataset.exercise}</b><br>${c.dataset.model}<br>${c.dataset.pass === 'true' ? 'pass' : 'fail'}, ${c.dataset.tries || '?'} tries<br>${Number(c.dataset.value).toLocaleString()}${unit}`));
+    c.addEventListener('mouseleave', hideTip);
+  });
+  container.querySelectorAll('circle.cost-avg-dot').forEach(c => {
+    c.addEventListener('mousemove', e => showTip(e,
+      `<b>${c.dataset.exercise}</b><br>${c.dataset.kind}: ${Number(c.dataset.value).toLocaleString()}${unit} (n=${c.dataset.n})`));
+    c.addEventListener('mouseleave', hideTip);
+  });
+}
+
+(function () {
+  const cpPoints = data.cost_spread.points;
+  // Shared column order for both panels: sorted by the token gap (fail avg - pass
+  // avg), biggest first, so a duration mismatch on the same exercise is easy to spot.
+  const tokenStats = [...computeCostStats(cpPoints, 'tokens').values()].sort((a, b) => {
+    if (a.gap === null && b.gap === null) return 0;
+    if (a.gap === null) return 1;
+    if (b.gap === null) return -1;
+    return b.gap - a.gap;
+  });
+  const order = tokenStats.map(e => e.ex);
+  document.getElementById('costCount').textContent = `${order.length} exercises, ${cpPoints.length} attempts`;
+  renderCostSpread(document.getElementById('costSpreadChartTokens'), cpPoints, 'tokens', order);
+  renderCostSpread(document.getElementById('costSpreadChartDuration'), cpPoints, 'duration', order);
+})();
+
+// ---- quality vs. token cost ----
+(function () {
+  const byLabel = new Map(data.perf.overall.map(o => [o.model, o]));
+  const models = data.chart1
+    .map(c => ({ label: c.label, rate: c.rate, n: c.n, perf: byLabel.get(c.label) }))
+    .filter(d => d.perf && d.perf.n > 0);
+
+  const W = 880, H = 420, M = { top: 20, right: 24, bottom: 46, left: 54 };
+  const innerW = W - M.left - M.right, innerH = H - M.top - M.bottom;
+  const xMax = Math.max(...models.map(d => d.perf.avg_tokens_norm)) * 1.1;
+  const xScale = v => M.left + (v / xMax) * innerW;
+  const yScale = v => M.top + (1 - v / 100) * innerH;
+  const rMin = Math.min(...models.map(d => d.perf.n)), rMax = Math.max(...models.map(d => d.perf.n));
+  const rScale = v => 5 + (rMax > rMin ? (Math.sqrt(v) - Math.sqrt(rMin)) / (Math.sqrt(rMax) - Math.sqrt(rMin)) : 0) * 10;
+
+  let gridSvg = '';
+  const yTicks = 5;
+  for (let i = 0; i <= yTicks; i++) {
+    const v = (i / yTicks) * 100;
+    const y = yScale(v);
+    gridSvg += `<line class="scatter-gridline" x1="${M.left}" x2="${W - M.right}" y1="${y}" y2="${y}"/>`;
+    gridSvg += `<text class="scatter-axis-label" x="${M.left - 8}" y="${y + 4}" text-anchor="end">${v.toFixed(0)}%</text>`;
+  }
+  const xTicks = 6;
+  for (let i = 0; i <= xTicks; i++) {
+    const v = (i / xTicks) * xMax;
+    const x = xScale(v);
+    gridSvg += `<line class="scatter-gridline" x1="${x}" x2="${x}" y1="${M.top}" y2="${H - M.bottom}"/>`;
+    gridSvg += `<text class="scatter-axis-label" x="${x}" y="${H - M.bottom + 18}" text-anchor="middle">${v.toFixed(1)}×</text>`;
+  }
+  const x1 = xScale(1);
+  gridSvg += `<line class="token-baseline-line" x1="${x1}" x2="${x1}" y1="${M.top}" y2="${H - M.bottom}"/>`;
+  gridSvg += `<line class="scatter-axis" x1="${M.left}" x2="${M.left}" y1="${M.top}" y2="${H - M.bottom}"/>`;
+  gridSvg += `<line class="scatter-axis" x1="${M.left}" x2="${W - M.right}" y1="${H - M.bottom}" y2="${H - M.bottom}"/>`;
+  gridSvg += `<text class="scatter-axis-label" x="${M.left + innerW / 2}" y="${H - 8}" text-anchor="middle">avg tokens per pass, normalized to exercise difficulty (1.0× = typical)</text>`;
+  gridSvg += `<text class="scatter-axis-label" x="${-(M.top + innerH / 2)}" y="14" text-anchor="middle" transform="rotate(-90)">pass rate on shortlist</text>`;
+
+  const sortedByX = models.slice().sort((a, b) => a.perf.avg_tokens_norm - b.perf.avg_tokens_norm);
+  const labelDy = {};
+  sortedByX.forEach((d, i) => { labelDy[d.label] = i % 2 === 0 ? -12 : 20; });
+
+  let pointsSvg = '';
+  models.forEach((d, i) => {
+    const cx = xScale(d.perf.avg_tokens_norm), cy = yScale(d.rate);
+    const r = rScale(d.perf.n);
+    const isMain = d.label.includes('(main)');
+    pointsSvg += `<circle class="scatter-point" style="fill:${quantColorVar(d.label)}${isMain ? ';stroke:var(--text-primary);stroke-width:3' : ''}" data-i="${i}" cx="${cx}" cy="${cy}" r="${r}"/>`;
+    pointsSvg += `<text class="scatter-point-label" x="${cx}" y="${cy + labelDy[d.label]}" text-anchor="middle">${d.label.replace(' (main)', '')}</text>`;
+  });
+
+  const el = document.getElementById('qualityChart');
+  el.innerHTML = `<svg class="scatter-svg" viewBox="0 0 ${W} ${H}" width="100%" style="max-width:${W}px">${gridSvg}${pointsSvg}</svg>`;
+  el.querySelectorAll('circle.scatter-point').forEach(c => {
+    const d = models[+c.dataset.i];
+    c.addEventListener('mousemove', e => showTip(e,
+      `<b>${d.label}</b><br>${d.rate.toFixed(1)}% pass rate (${d.n} attempts)<br>${d.perf.avg_tokens_norm.toFixed(2)}× typical tokens (${d.perf.avg_tokens.toLocaleString()} raw avg, n=${d.perf.n} passes)`));
+    c.addEventListener('mouseleave', hideTip);
+  });
+})();
+
+// ---- chart 2: heatmap ----
+// Sequential green ramp keyed by average tries-to-pass (1 = fast/confident, 6 = barely made it).
+function hexToRgb(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+function relLuminance([r, g, b]) {
+  const lin = v => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+  const [rl, gl, bl] = [r, g, b].map(lin);
+  return 0.2126 * rl + 0.7152 * gl + 0.0722 * bl;
+}
+const rootStyle = getComputedStyle(document.querySelector('.viz-root'));
+function triesFill(avgTries) {
+  const goodFast = rootStyle.getPropertyValue('--good-fast').trim();
+  const goodSlow = rootStyle.getPropertyValue('--good-slow').trim();
+  const t = Math.max(0, Math.min(1, (avgTries - 1) / 5));
+  const a = hexToRgb(goodFast), b = hexToRgb(goodSlow);
+  const rgb = a.map((v, i) => Math.round(v + (b[i] - v) * t));
+  const textColor = relLuminance(rgb) > 0.45 ? '#0b0b0b' : '#ffffff';
+  return { bg: `rgb(${rgb.join(',')})`, text: textColor };
+}
+
+const c2 = document.getElementById('chart2');
+const table = document.createElement('table');
+table.className = 'heatmap';
+let thead = '<thead><tr><th></th>' + data.matrix_models.map(m =>
+  `<th class="colhead" style="border-bottom:3px solid ${quantColorVar(m)}" title="${quantOf(m)}">${m}</th>`
+).join('') + '</tr></thead>';
+let tbody = '<tbody>' + data.matrix.map(row => {
+  const cells = row.cells.map((cell, i) => {
+    if (!cell) return '<td class="hm-cell"></td>';
+    const label = cell.total > 1 ? `${cell.pass}/${cell.total}` : '';
+    let style = '';
+    let cls = 'fail';
+    if (cell.rate >= 0.5) {
+      cls = 'pass';
+      const { bg, text } = triesFill(cell.avg_tries ?? 6);
+      style = `style="background:${bg};color:${text}"`;
+    }
+    return `<td class="hm-cell ${cls}" ${style} data-ex="${row.label}" data-exercise="${row.exercise}" data-language="${row.language}" data-model="${data.matrix_models[i]}" data-pass="${cell.pass}" data-total="${cell.total}" data-tries="${cell.avg_tries ?? ''}">${label}</td>`;
+  }).join('');
+  return `<tr><th class="rowhead">${row.label}</th>${cells}</tr>`;
+}).join('') + '</tbody>';
+table.innerHTML = thead + tbody;
+c2.appendChild(table);
+
+table.querySelectorAll('.hm-cell[data-ex]').forEach(td => {
+  td.addEventListener('mousemove', e => {
+    const runs = data.detail.filter(d =>
+      d.model === td.dataset.model && d.exercise === td.dataset.exercise && d.language === td.dataset.language
+    ).sort((a, b) => a.timestamp < b.timestamp ? -1 : 1);
+    const triesLine = td.dataset.tries ? ` &middot; avg ${Number(td.dataset.tries).toFixed(1)} tries to pass` : '';
+    const runLines = runs.map(r =>
+      `${r.timestamp.slice(5, 16).replace('T', ' ')} — ${r.pass ? 'pass' : 'fail'}, ${r.tries || '?'} tries, ${r.duration}s (${r.run_cmd})`
+    ).join('<br>');
+    showTip(e, `<b>${td.dataset.model}</b><br>${td.dataset.ex}: ${td.dataset.pass}/${td.dataset.total} passed${triesLine}` +
+      (runLines ? `<hr class="tt-rule">${runLines}` : ''));
+  });
+  td.addEventListener('mouseleave', hideTip);
+});
+
+// ---- exercise usefulness: scatter + detail table ----
+(function () {
+  const ex = data.usefulness.exercises;
+  const goodHex = rootStyle.getPropertyValue('--status-good').trim();
+  const critHex = rootStyle.getPropertyValue('--status-critical').trim();
+  const mutedHex = rootStyle.getPropertyValue('--text-muted').trim();
+  function splitColor(p) {
+    const [a, b, t] = p < 0.5 ? [critHex, mutedHex, p / 0.5] : [mutedHex, goodHex, (p - 0.5) / 0.5];
+    const rgbA = hexToRgb(a), rgbB = hexToRgb(b);
+    const rgb = rgbA.map((v, i) => Math.round(v + (rgbB[i] - v) * t));
+    return `rgb(${rgb.join(',')})`;
+  }
+
+  const W = 880, H = 420, M = { top: 20, right: 24, bottom: 50, left: 54 };
+  const innerW = W - M.left - M.right, innerH = H - M.top - M.bottom;
+  const xMax = Math.max(...ex.map(d => d.avg_duration)) * 1.08;
+  const yMax = 1.05;
+  const xScale = v => M.left + (v / xMax) * innerW;
+  const yScale = v => M.top + (1 - v / yMax) * innerH;
+  const rMin = Math.min(...ex.map(d => d.n_attempts)), rMax = Math.max(...ex.map(d => d.n_attempts));
+  const rScale = v => 5 + (rMax > rMin ? (Math.sqrt(v) - Math.sqrt(rMin)) / (Math.sqrt(rMax) - Math.sqrt(rMin)) : 0) * 11;
+
+  const xTicks = 6, yTicks = 4;
+  let gridSvg = '';
+  for (let i = 0; i <= yTicks; i++) {
+    const v = (i / yTicks);
+    const y = yScale(v);
+    gridSvg += `<line class="scatter-gridline" x1="${M.left}" x2="${W - M.right}" y1="${y}" y2="${y}"/>`;
+    gridSvg += `<text class="scatter-axis-label" x="${M.left - 8}" y="${y + 4}" text-anchor="end">${v.toFixed(2)}</text>`;
+  }
+  for (let i = 0; i <= xTicks; i++) {
+    const v = (i / xTicks) * xMax;
+    const x = xScale(v);
+    gridSvg += `<line class="scatter-gridline" x1="${x}" x2="${x}" y1="${M.top}" y2="${H - M.bottom}"/>`;
+    gridSvg += `<text class="scatter-axis-label" x="${x}" y="${H - M.bottom + 18}" text-anchor="middle">${Math.round(v)}s</text>`;
+  }
+  gridSvg += `<line class="scatter-axis" x1="${M.left}" x2="${M.left}" y1="${M.top}" y2="${H - M.bottom}"/>`;
+  gridSvg += `<line class="scatter-axis" x1="${M.left}" x2="${W - M.right}" y1="${H - M.bottom}" y2="${H - M.bottom}"/>`;
+  gridSvg += `<text class="scatter-axis-label" x="${M.left + innerW / 2}" y="${H - 6}" text-anchor="middle">average duration per attempt (s), all models</text>`;
+  gridSvg += `<text class="scatter-axis-label" x="${-(M.top + innerH / 2)}" y="14" text-anchor="middle" transform="rotate(-90)">discriminative power (0 = all agree, 1 = 50/50 split)</text>`;
+
+  // sort by x so alternating label offsets reduce local collisions
+  const sortedByX = ex.slice().sort((a, b) => a.avg_duration - b.avg_duration);
+  const labelDy = {};
+  sortedByX.forEach((d, i) => { labelDy[d.label] = i % 2 === 0 ? -12 : 20; });
+
+  let pointsSvg = '';
+  ex.forEach(d => {
+    const cx = xScale(d.avg_duration), cy = yScale(d.discriminative);
+    const r = rScale(d.n_attempts);
+    const fill = splitColor(d.pass_rate_across_models);
+    pointsSvg += `<circle class="scatter-point" data-i="${ex.indexOf(d)}" cx="${cx}" cy="${cy}" r="${r}" fill="${fill}"/>`;
+    pointsSvg += `<text class="scatter-point-label" x="${cx}" y="${cy + labelDy[d.label]}" text-anchor="middle">${d.exercise}</text>`;
+  });
+
+  const svgEl = document.getElementById('scatterChart');
+  svgEl.innerHTML = `<svg class="scatter-svg" viewBox="0 0 ${W} ${H}" width="100%" style="max-width:${W}px">${gridSvg}${pointsSvg}</svg>`;
+
+  svgEl.querySelectorAll('circle.scatter-point').forEach(c => {
+    const d = ex[+c.dataset.i];
+    c.addEventListener('mousemove', e => showTip(e,
+      `<b>${d.label}</b><br>` +
+      `${d.models_passed}/${d.n_models} models passed (${(d.pass_rate_across_models * 100).toFixed(0)}%)<br>` +
+      `discriminative score ${d.discriminative.toFixed(2)}<br>` +
+      `avg ${d.avg_duration.toFixed(0)}s over ${d.n_attempts} attempts<br>` +
+      (d.flakiness !== null ? `repeat-run flakiness ${d.flakiness.toFixed(2)} (${d.n_flaky_models} model${d.n_flaky_models === 1 ? '' : 's'} re-ran it)` : 'no repeat runs to judge consistency')
+    ));
+    c.addEventListener('mouseleave', hideTip);
+  });
+
+  // ---- detail table with tries-shape sparklines ----
+  const triesOrder = ['0','1','2','3','4','5','6','8','16'];
+  function sparkline(hist) {
+    const byB = Object.fromEntries(hist.map(h => [h.tries, h]));
+    const counts = triesOrder.map(b => byB[b] ? byB[b].pass + byB[b].fail : 0);
+    const maxC = Math.max(...counts, 1);
+    return '<div class="spark">' + triesOrder.map(b => {
+      const h = byB[b];
+      if (!h) return '<div class="spark-bar" style="height:0"></div>';
+      const total = h.pass + h.fail;
+      const heightPct = total / maxC * 100;
+      const passPct = total ? h.pass / total * 100 : 0;
+      const bg = h.fail === 0 ? 'var(--status-good)' : h.pass === 0 ? 'var(--status-critical)' :
+        `linear-gradient(to top, var(--status-critical) ${100 - passPct}%, var(--status-good) ${100 - passPct}%)`;
+      return `<div class="spark-bar" style="height:${heightPct}%;background:${bg}" title="${b} tries: ${h.pass} pass / ${h.fail} fail"></div>`;
+    }).join('') + '</div>';
+  }
+
+  const usefulCols = [
+    { key: 'label', label: 'Exercise' },
+    { key: 'quality', label: 'Quality' },
+    { key: 'pass_rate_across_models', label: 'Pass rate' },
+    { key: 'discriminative', label: 'Discriminative' },
+    { key: 'avg_duration', label: 'Avg duration' },
+    { key: 'flakiness', label: 'Flakiness' },
+    { key: 'tries_shape', label: 'Tries shape (0→16)' },
+    { key: 'n_attempts', label: 'Attempts' },
+  ];
+  let usefulSort = { key: 'discriminative', dir: -1 };
+
+  function renderUsefulTable() {
+    const rows = ex.slice().sort((a, b) => {
+      let av = usefulSort.key === 'tries_shape' ? a.n_attempts : a[usefulSort.key];
+      let bv = usefulSort.key === 'tries_shape' ? b.n_attempts : b[usefulSort.key];
+      if (av === null) av = -1;
+      if (bv === null) bv = -1;
+      if (typeof av === 'string') { av = av.toLowerCase(); bv = bv.toLowerCase(); }
+      if (av < bv) return -1 * usefulSort.dir;
+      if (av > bv) return 1 * usefulSort.dir;
+      return 0;
+    });
+    const theadHtml = '<thead><tr>' + usefulCols.map(c => {
+      const arrow = usefulSort.key === c.key ? `<span class="arrow">${usefulSort.dir === 1 ? '▲' : '▼'}</span>` : '';
+      return `<th data-key="${c.key}">${c.label}${arrow}</th>`;
+    }).join('') + '</tr></thead>';
+    const tbodyHtml = '<tbody>' + rows.map(d => `<tr>
+      <td class="ex-col">${d.label}</td>
+      <td>${d.quality.toFixed(2)}</td>
+      <td>${d.models_passed}/${d.n_models} (${(d.pass_rate_across_models * 100).toFixed(0)}%)</td>
+      <td>${d.discriminative.toFixed(2)}</td>
+      <td>${d.avg_duration.toFixed(0)}s</td>
+      <td>${d.flakiness !== null ? d.flakiness.toFixed(2) : '—'}</td>
+      <td>${sparkline(d.tries_hist)}</td>
+      <td>${d.n_attempts}</td>
+    </tr>`).join('') + '</tbody>';
+    const t = document.getElementById('usefulTable');
+    t.innerHTML = theadHtml + tbodyHtml;
+    t.querySelectorAll('thead th').forEach(th => {
+      th.addEventListener('click', () => {
+        const key = th.dataset.key;
+        usefulSort.dir = usefulSort.key === key ? -usefulSort.dir : (key === 'label' ? 1 : -1);
+        usefulSort.key = key;
+        renderUsefulTable();
+      });
+    });
+  }
+  renderUsefulTable();
+})();
+
+// ---- per-test breakdown ----
+const detailModels = [...new Set(data.detail.map(d => d.model))].sort();
+const modelFilter = document.getElementById('detailModelFilter');
+detailModels.forEach(m => {
+  const opt = document.createElement('option');
+  opt.value = m; opt.textContent = m;
+  modelFilter.appendChild(opt);
+});
+
+const detailCols = [
+  { key: 'exercise', label: 'Exercise' },
+  { key: 'language', label: 'Language' },
+  { key: 'model', label: 'Model' },
+  { key: 'pass', label: 'Pass' },
+  { key: 'tries', label: 'Tries' },
+  { key: 'duration', label: 'Duration (s)' },
+  { key: 'run_cmd', label: 'Run' },
+];
+let detailSort = { key: 'exercise', dir: 1 };
+
+function renderDetailTable() {
+  const filterModel = modelFilter.value;
+  let rows = data.detail.filter(d => !filterModel || d.model === filterModel);
+  rows = rows.slice().sort((a, b) => {
+    let av = a[detailSort.key], bv = b[detailSort.key];
+    if (typeof av === 'string') { av = av.toLowerCase(); bv = bv.toLowerCase(); }
+    if (av < bv) return -1 * detailSort.dir;
+    if (av > bv) return 1 * detailSort.dir;
+    return 0;
+  });
+  document.getElementById('detailCount').textContent = `${rows.length} of ${data.detail.length} runs`;
+
+  const theadHtml = '<thead><tr>' + detailCols.map(c => {
+    const arrow = detailSort.key === c.key ? `<span class="arrow">${detailSort.dir === 1 ? '▲' : '▼'}</span>` : '';
+    return `<th data-key="${c.key}">${c.label}${arrow}</th>`;
+  }).join('') + '</tr></thead>';
+  const tbodyHtml = '<tbody>' + rows.map(d => `<tr>
+    <td class="ex-col">${d.exercise}</td>
+    <td>${d.language}</td>
+    <td style="display:flex;align-items:center;gap:6px">${quantDotHtml(d.model)}${d.model}</td>
+    <td class="pass-cell ${d.pass ? 'pass' : 'fail'}">${d.pass ? 'pass' : 'fail'}</td>
+    <td>${d.tries}</td>
+    <td>${d.duration}</td>
+    <td>${d.run_cmd}</td>
+  </tr>`).join('') + '</tbody>';
+
+  const detailTable = document.getElementById('detailTable');
+  detailTable.innerHTML = theadHtml + tbodyHtml;
+  detailTable.querySelectorAll('thead th').forEach(th => {
+    th.addEventListener('click', () => {
+      const key = th.dataset.key;
+      detailSort.dir = detailSort.key === key ? -detailSort.dir : 1;
+      detailSort.key = key;
+      renderDetailTable();
+    });
+  });
+}
+modelFilter.addEventListener('change', renderDetailTable);
+renderDetailTable();
+
+// ---- chart 3: stacked columns ----
+const c3 = document.getElementById('chart3');
+const maxTotal = Math.max(...data.chart3.map(d => d.pass + d.fail));
+const vbars = document.createElement('div');
+vbars.className = 'vbars';
+data.chart3.forEach(d => {
+  const total = d.pass + d.fail;
+  const heightPct = total / maxTotal * 100;
+  const passPct = total ? d.pass / total * 100 : 0;
+  const failPct = total ? d.fail / total * 100 : 0;
+  const group = document.createElement('div');
+  group.className = 'vbar-group';
+  group.innerHTML = `
+    <div class="vbar-total">${total}</div>
+    <div class="vbar-stack" style="height:${heightPct}%">
+      ${d.fail ? `<div class="vbar-seg fail" style="height:${failPct}%"></div>` : ''}
+      ${d.pass ? `<div class="vbar-seg pass" style="height:${passPct}%"></div>` : ''}
+    </div>
+    <div class="vbar-x">${d.tries}</div>
+  `;
+  group.addEventListener('mousemove', e => showTip(e, `<b>${d.tries} tries taken</b><br>${d.pass} pass &middot; ${d.fail} fail`));
+  group.addEventListener('mouseleave', hideTip);
+  vbars.appendChild(group);
+});
+c3.appendChild(vbars);
+const xlabel = document.createElement('div');
+xlabel.style.cssText = 'text-align:center;font-size:11px;color:var(--text-muted);margin-top:10px;';
+xlabel.textContent = 'tries taken';
+c3.appendChild(xlabel);
+const legend3 = document.createElement('div');
+legend3.className = 'legend';
+legend3.innerHTML = `
+  <div class="legend-item"><span class="swatch" style="background:var(--status-good)"></span>Passed</div>
+  <div class="legend-item"><span class="swatch" style="background:var(--status-critical)"></span>Failed</div>
+`;
+c3.parentElement.appendChild(legend3);
+
+// ---- chart 4: horizontal bars ----
+const c4 = document.getElementById('chart4');
+const maxPct = Math.max(...data.chart4.map(d => d.pct));
+data.chart4.forEach(d => {
+  const row = document.createElement('div');
+  row.className = 'hbar2-row';
+  row.innerHTML = `
+    <div class="hbar2-label">${d.label}</div>
+    <div class="hbar2-track"><div class="hbar2-fill" style="width:${d.pct / maxPct * 100}%"></div></div>
+    <div class="hbar2-value">${d.pct.toFixed(1)}%</div>
+  `;
+  const fill = row.querySelector('.hbar2-fill');
+  fill.addEventListener('mousemove', e => showTip(e, `<b>${d.label}</b><br>${d.count} / ${data.fail_n} failed runs (${d.pct.toFixed(1)}%)`));
+  fill.addEventListener('mouseleave', hideTip);
+  c4.appendChild(row);
+});
+
+document.addEventListener('mousemove', e => { if (tt.classList.contains('show')) moveTip(e); });
+
+// ---- theme toggle ----
+document.getElementById('themeToggle').addEventListener('click', () => {
+  const root = document.documentElement;
+  const current = root.getAttribute('data-theme');
+  root.setAttribute('data-theme', current === 'dark' ? 'light' : 'dark');
+});
+</script>
+</body>
+</html>
