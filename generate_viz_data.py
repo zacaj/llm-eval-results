@@ -12,6 +12,7 @@ there is no other cache; eval-viz.html is fully derived and safe to overwrite.
 import csv
 import json
 import re
+import sys
 from collections import defaultdict
 
 TSV_PATH = 'eval-results-per-test.tsv'
@@ -22,26 +23,48 @@ OUTPUT_PATH = 'eval-viz.html'
 # variant shows up in the tsv; anything not listed will raise a KeyError so
 # stale/renamed models get noticed rather than silently dropped.
 LABELS = {
-    'Qwen3.6-35B-A3B-Claude-Opus-Distilled-MTP-UD-IQ3_XXS.gguf': 'Opus-Distilled IQ3_XXS (main)',
-    'Qwen3.6-35B-A3B-UD-IQ3_XXS-MTP.gguf': 'Base IQ3_XXS',
-    'Ornith-1.0-35B-unsloth-UD-IQ3_XXS-MTP-zacaj.gguf': 'Ornith IQ3_XXS',
-    'Qwen3.6-35B-A3B-Claude-Opus-Distilled-MTP-UD-IQ3_XXS.pruned-summary.weighted-n48.gguf': 'Opus-Distilled n48-pruned',
-    'Qwen3.6-35B-A3B-Claude-4.7-Opus-Reasoning-Distilled-UD-IQ4_XS-MTP-mudler.gguf': '4.7-Reasoning-Distilled IQ4_XS',
+    'Qwen3.6-35B-A3B-Claude-Opus-Distilled-MTP-UD-IQ3_XXS.gguf': 'Qwen3.6-35B Opus-Distilled IQ3_XXS (main)',
+    'Qwen3.6-35B-A3B-UD-IQ3_XXS-MTP.gguf': 'Qwen3.6-35B Base IQ3_XXS',
+    'Ornith-1.0-35B-unsloth-UD-IQ3_XXS-MTP-zacaj.gguf': 'Ornith-1.0-35B IQ3_XXS',
+    'Qwen3.6-35B-A3B-Claude-Opus-Distilled-MTP-UD-IQ3_XXS.pruned-summary.weighted-n48.gguf': 'Qwen3.6-35B Opus-Distilled IQ3_XXS n48-pruned',
+    'Qwen3.6-35B-A3B-Claude-4.7-Opus-Reasoning-Distilled-UD-IQ4_XS-MTP-mudler.gguf': 'Qwen3.6-35B 4.7-Reasoning-Distilled IQ4_XS',
     'GLM-4.7-Flash-UD-IQ3_XXS-unsloth.gguf': 'GLM-4.7-Flash IQ3_XXS',
-    'Darwin-35B-A3B-Opus-unsloth-UD-IQ3_XXS-MTP-zacaj.gguf': 'Darwin IQ3_XXS (unsloth)',
-    'Darwin-35B-A3B-IQ3_XXS-Opus-bartowski.gguf': 'Darwin IQ3_XXS (bartowski)',
-    'Qwen3.6-35B-A3B-UD-IQ4_XS-MTP-unsloth.gguf': 'Base IQ4_XS',
-    'Qwen3.6-35B-A3B-UD-Q4_K_XL-MTP-unsloth.gguf': 'Base Q4_K_XL',
-    'Qwen3.6-35B-A3B-UD-Q4_K_XL-MTP-unsloth.pruned-Qwen3.6-35B-A3B-Claude-Opus-Distilled-MTP-UD-IQ3_XXS.summary.weighted-n68.gguf': 'Q4_K_XL n68-pruned',
+    'Darwin-35B-A3B-Opus-unsloth-UD-IQ3_XXS-MTP-zacaj.gguf': 'Darwin-35B IQ3_XXS (unsloth)',
+    'Darwin-35B-A3B-IQ3_XXS-Opus-bartowski.gguf': 'Darwin-35B IQ3_XXS (bartowski)',
+    'Qwen3.6-35B-A3B-UD-IQ4_XS-MTP-unsloth.gguf': 'Qwen3.6-35B Base IQ4_XS',
+    'Qwen3.6-35B-A3B-UD-Q4_K_XL-MTP-unsloth.gguf': 'Qwen3.6-35B Base Q4_K_XL',
+    'Qwen3.6-35B-A3B-UD-Q4_K_XL-MTP-unsloth.pruned-Qwen3.6-35B-A3B-Claude-Opus-Distilled-MTP-UD-IQ3_XXS.summary.weighted-n68.gguf': 'Qwen3.6-35B Base Q4_K_XL n68-pruned',
     'Agents-A1-unsloth-UD-IQ3_XXS-MTP-zacaj.gguf': 'Agents-A1 IQ3_XXS',
+    'gemma-4-26B-A4B-it-qat-UD-Q4_K_XL-unsloth.gguf': 'Gemma-4-26B QAT Q4_K_XL',
+    'ox-alpha': 'Ox Alpha',
+    'Qwen3.8-27B-UD-IQ3_XXS-unsloth.gguf': 'Qwen3.8-27B Base IQ3_XXS',
+    'Qwen3.6-27B-UD-IQ3_XXS-MTP-unsloth.gguf': 'Qwen3.6-27B Base IQ3_XXS',
+    'Qwen3.6-35B-A3B-Claude-4.7-Opus-Reasoning-Distilled-Q4_K_XL-MTP-mudler-zacaj.gguf': 'Qwen3.6-35B 4.7-Reasoning-Distilled Q4_K_XL',
+    'Darwin-35B-A3B-Opus-Q4_K_XL-MTP-zacaj.gguf': 'Darwin-35B Q4_K_XL',
+    'Qwen3.6-35B-A3B-Kimi-K2.6-Reasoning-Distilled-IQ3_XXS-MTP-zacaj.gguf': 'Qwen3.6-35B Kimi-2.6-Reasoning-Distilled IQ3_XXS',
+    'Darwin-35B-A3B-Opus-Q8_0-plain.gguf': 'Darwin-35B Q8_0 (plain)',
+    'Qwen3.8-27B-IQ3_XXS-GSQ-RCO-MTP-ISNTA_DASLab.gguf': 'Qwen3.8-27B GSQ-RCO IQ3_XXS',
+    'Ternary-Bonsai-2-27B-PQ2_0-MTP-test.gguf': 'Ternary-Bonsai-2-27B PQ2_0 (test)',
+    'Darwin-28B-Opus-unsloth-UD-IQ3_XXS-MTP-zacaj.gguf': 'Darwin-28B IQ3_XXS (unsloth)',
+    'Qwen3.8-27B-requant-like-GSQ-RCO-ISTA-DASLab.gguf': 'Qwen3.8-27B GSQ-RCO requant-like',
+    'Darwin-28B-Opus-GSQ-RCO-IQ3_XXS-MTP-zacaj.gguf': 'Darwin-28B GSQ-RCO IQ3_XXS',
+    'Qwen3.8-27B-UD-IQ3_XXS-unsloth-ssm_beta_bf16.gguf': 'Qwen3.8-27B Base IQ3_XXS (ssm_beta BF16)',
+    'Qwen3.8-27B-IQ3_S-GSQ-RCO-MTP-ISNTA_DASLab.gguf': 'Qwen3.8-27B GSQ-RCO IQ3_S',
+    'Qwen3.6-27B-IQ4_XS-uniform-imat-zacaj.gguf': 'Qwen3.6-27B Base IQ4_XS (uniform imat)',
+    'Qwen3.8-27B-UD-IQ3_XXS-unsloth-ssm_alpha_beta_bf16.gguf': 'Qwen3.8-27B Base IQ3_XXS (ssm_alpha+beta BF16)',
+    'Qwen3.8-27B-UD-IQ3_XXS-unsloth-plan-DASLab-imatrix.gguf': 'Qwen3.8-27B Base IQ3_XXS (DASLab plan+imatrix)',
+    'Qwen3.8-27B-hybrid-B-gsq32-63.gguf': 'Qwen3.8-27B hybrid-B (GSQ layers 32-63)',
+    'Qwen3.8-27B-hybrid-A-gsq0-31.gguf': 'Qwen3.8-27B hybrid-A (GSQ layers 0-31)',
 }
 
-# The cross-model comparison shortlist, from shortlist-15.txt: fixed (language, exercise)
-# pairs, each pinned to ONE language track. This must match by (language, exercise), not
-# exercise name alone — the aider-polyglot suite reuses exercise names across language
-# tracks (e.g. "bowling" is a distinct task per language), so name-only grouping silently
-# blends unrelated tasks together.
-PINS_INTENDED = [
+# The task list itself is fully dynamic (see `pins` in build_dataset — every
+# (language, exercise) with at least one row, discovered fresh from the tsv each run).
+# This is just the seed for the exercise filter's initial selection, so the page opens
+# to a small curated comparison instead of every task the harness has ever touched.
+# From shortlist-15.txt, originally: fixed (language, exercise) pairs, each pinned to
+# ONE language track — must match by (language, exercise), not exercise name alone, the
+# same collision the dynamic discovery above also has to account for.
+PINS_DEFAULT = [
     ('javascript', 'triangle'), ('javascript', 'grade-school'), ('javascript', 'tournament'),
     ('cpp', 'allergies'), ('cpp', 'sublist'), ('go', 'book-store'), ('javascript', 'wordy'),
     ('go', 'two-bucket'), ('javascript', 'alphametics'), ('javascript', 'promises'),
@@ -50,8 +73,38 @@ PINS_INTENDED = [
 ]
 
 
+_warned_unmapped = set()
+
+
+def shrink_toward_prior(raw, n, prior, strength):
+    """Evidence-weighted blend of an observed rate toward a prior belief.
+
+    `n` real observations get full-strength say; the prior contributes as if it were
+    `strength` additional observations. As n grows past strength, the result converges
+    on `raw`; as n shrinks toward 0, it converges on `prior`. This is the one small-
+    sample-correction idea used everywhere in this file — the only thing that changes
+    per use is what `prior` should be:
+      - per (model, exercise): shrink toward that exercise's own cross-model average
+        pass rate (NOT toward 0.5 — a model tested once shouldn't be treated as an
+        agnostic coin flip when we already know what a typical model does on this
+        exercise; see chart1 below, which replaced an earlier, wrong Wilson-toward-0.5
+        version of this exact call after real data showed why 0.5 was the wrong prior).
+      - per-exercise flakiness / discriminative: shrink toward the average across every
+        OTHER exercise, since most exercises simply aren't flaky/maximally-discriminative
+        and a thin sample shouldn't be trusted to say otherwise.
+    """
+    return (n * raw + strength * prior) / (n + strength)
+
+
 def short_label(srv_m_path):
-    return LABELS[srv_m_path.split('/')[-1]]
+    filename = srv_m_path.split('/')[-1]
+    if filename not in LABELS:
+        if filename not in _warned_unmapped:
+            _warned_unmapped.add(filename)
+            print(f'WARNING: no LABELS entry for {filename!r}; falling back to full filename '
+                  f'(add a short label to LABELS in generate_viz_data.py)', file=sys.stderr)
+        return filename
+    return LABELS[filename]
 
 
 # Quant bucket, detected straight from the gguf filename rather than hand-mapped —
@@ -68,42 +121,50 @@ def quant_of(srv_m_path):
 
 def load_rows():
     with open(TSV_PATH) as f:
-        return list(csv.DictReader(f, delimiter='\t'))
+        rows = list(csv.DictReader(f, delimiter='\t'))
+    # The same gguf can be served from different mount dirs (/models, /models3, ...);
+    # keying models by full path made those separate models with identical labels
+    # (duplicate heatmap column + filter checkbox). The filename is the identity.
+    for row in rows:
+        row['srv.-m'] = row['srv.-m'].split('/')[-1]
+    return rows
 
 
 def build_dataset(rows):
-    pin_label = {(l, e): f'{e} ({l})' for l, e in PINS_INTENDED}
-
-    # Defensive: only treat a pinned task as part of the shortlist if it still has at
-    # least one row. A fully-deleted exercise (e.g. voided by a harness bug and removed
-    # entirely) drops out of every chart instead of rendering as fabricated 0/fail data.
-    has_data = {(l, e) for l, e in PINS_INTENDED
-                if any(r['language'] == l and r['exercise'] == e for r in rows)}
-    pins = [(l, e) for l, e in PINS_INTENDED if (l, e) in has_data]
+    # The task list is fully dynamic: every (language, exercise) pair with at least one
+    # row is "in", discovered fresh from the tsv each run — no hardcoded list to keep in
+    # sync as the harness adds new comparison tasks over time. A voided/deleted
+    # exercise (every one of its rows removed) automatically drops back out, for the
+    # same reason: it just no longer appears in `rows`.
+    pins = sorted({(row['language'], row['exercise']) for row in rows})
     pinset = set(pins)
+    pin_label = {(l, e): f'{e} ({l})' for l, e in pins}
+
+    # PINS_DEFAULT (the original curated shortlist) no longer scopes what's computed —
+    # it only seeds which tasks the exercise filter starts with selected, so the initial
+    # view stays a small, curated comparison instead of dumping the full (currently
+    # 200+) task list on first load. Defensive same as above: a default pin that's lost
+    # all its data is dropped rather than seeding a filter selection for a task that no
+    # longer exists.
+    default_pins = [p for p in PINS_DEFAULT if p in pinset]
 
     by_model_ex = defaultdict(set)
     for row in rows:
-        by_model_ex[row['srv.-m']].add(row['exercise'])
+        # (language, exercise), not exercise name alone — the same collision this file
+        # already guards against everywhere else (e.g. "bowling" alone spans 5
+        # languages across the full task list). Name-only counting would undercount a
+        # model's real distinct-task coverage whenever it hit the same-named exercise
+        # in more than one language track.
+        by_model_ex[row['srv.-m']].add((row['language'], row['exercise']))
     models_sorted = sorted(by_model_ex, key=lambda m: -len(by_model_ex[m]))
-    main = models_sorted[0]  # the model with the most distinct exercises = the full-suite run
+    main = models_sorted[0]  # the model with the most distinct tasks = the full-suite run
     matrix_models = [short_label(m) for m in models_sorted]
     model_quant = {short_label(m): quant_of(m) for m in models_sorted}
 
-    shortlist_rows = [row for row in rows if (row['language'], row['exercise']) in pinset]
-
-    # ---- chart1: pass rate per model, tie-broken by avg tries-to-pass (fewer = better) ----
-    chart1 = []
-    for m in models_sorted:
-        sub = [row for row in shortlist_rows if row['srv.-m'] == m]
-        if not sub:
-            continue
-        npass = sum(1 for row in sub if row['pass'] == 'true')
-        pass_tries = [int(row['tries_taken']) for row in sub if row['pass'] == 'true' and row['tries_taken']]
-        avg_tries = round(sum(pass_tries) / len(pass_tries), 2) if pass_tries else None
-        chart1.append({'label': short_label(m), 'n': len(sub), 'pass': npass,
-                        'rate': round(npass / len(sub) * 100, 1), 'avg_tries_on_pass': avg_tries})
-    chart1.sort(key=lambda d: (-d['rate'], d['avg_tries_on_pass'] if d['avg_tries_on_pass'] is not None else 999))
+    # Every row's (language, exercise) is in `pinset` by construction, so this is just
+    # `rows` — kept as its own name since the rest of this function was written around
+    # a "shortlist" of rows and renaming every reference below isn't worth the diff.
+    shortlist_rows = rows
 
     # ---- per-test breakdown ----
     detail = []
@@ -112,6 +173,7 @@ def build_dataset(rows):
             'exercise': row['exercise'], 'language': row['language'], 'model': short_label(row['srv.-m']),
             'run_cmd': row['run_cmd'], 'pass': row['pass'] == 'true', 'tries': row['tries_taken'],
             'duration': round(float(row['duration'] or 0), 1), 'timestamp': row['timestamp'],
+            'bailed': row['bailed_on_max_duration'] == 'true',
         })
     detail.sort(key=lambda d: (d['exercise'], d['model']))
 
@@ -142,14 +204,13 @@ def build_dataset(rows):
     # ---- summary / stat tiles ----
     main_full = [row for row in rows if row['srv.-m'] == main and row['run_cmd'] == 'full']
     main_full_pass = sum(1 for row in main_full if row['pass'] == 'true')
-    distinct_tasks = len(set((row['exercise'], row['language']) for row in rows))
     summary = {
-        'total_runs': len(rows), 'distinct_tasks': distinct_tasks,
+        'total_runs': len(rows), 'distinct_tasks': len(pins),
         'total_exercise_names': len(set(row['exercise'] for row in rows)),
         'total_models': len(models_sorted),
         'overall_pass': sum(1 for row in rows if row['pass'] == 'true'),
         'overall_fail': sum(1 for row in rows if row['pass'] == 'false'),
-        'shortlist_n': len(pins), 'shortlist_n_intended': len(PINS_INTENDED),
+        'total_tasks': len(pins), 'default_tasks': len(default_pins),
         'main_label': short_label(main), 'main_full_pass': main_full_pass, 'main_full_n': len(main_full),
     }
 
@@ -207,7 +268,7 @@ def build_dataset(rows):
         'exercise': pin_label[(row['language'], row['exercise'])],
         'model': short_label(row['srv.-m']), 'pass': row['pass'] == 'true',
         'tokens': int(row['completion_tokens']), 'duration': round(float(row['duration']), 1),
-        'tries': row['tries_taken'],
+        'tries': row['tries_taken'], 'timestamp': row['timestamp'],
     } for row in cost_rows]
     cost_spread = {'points': cost_points}
 
@@ -234,6 +295,13 @@ def build_dataset(rows):
             if durs:
                 model_mean_durations.append(sum(durs) / len(durs))
             if len(rs) > 1:
+                # NOT shrunk toward 0.5 here: this formula (p(1-p)*4) already REWARDS
+                # closeness to 0.5, so shrinking the input rate toward 0.5 would inflate
+                # the flakiness of every small-sample exercise, even ones that were
+                # perfectly consistent (a 2/2 model would still read as "somewhat
+                # flaky" once Wilson refuses to trust the 0% end of the interval). The
+                # small-sample problem here is fixed below instead, by shrinking the
+                # exercise-level flakiness *result* toward a cross-exercise prior.
                 flakiness_scores.append(rate * (1 - rate) * 4)
         p = sum(model_pass_rates) / len(model_pass_rates) if model_pass_rates else 0
         discriminative = p * (1 - p) * 4
@@ -247,6 +315,17 @@ def build_dataset(rows):
             hist2[t]['pass' if row['pass'] == 'true' else 'fail'] += 1
         tries_hist = [{'tries': b, 'pass': hist2[b]['pass'], 'fail': hist2[b]['fail']}
                       for b in tries_buckets if (hist2[b]['pass'] + hist2[b]['fail']) > 0]
+        # What fraction of this task's failures were the harness bailing on a max
+        # duration, rather than the model genuinely giving up/erroring out. Surfaced as
+        # its own number rather than folded into `flakiness` — a model that reliably
+        # ALWAYS times out on a task isn't flaky (it's consistent), so the two aren't
+        # the same phenomenon and conflating them would be a judgment call this file
+        # shouldn't make silently. High timeout_rate is a hint the duration budget
+        # itself may be too tight for this task, not necessarily that the model (or the
+        # task's discriminative signal) can't be trusted.
+        fail_rows = [row for row in ex_rows if row['pass'] == 'false']
+        timeout_fails = sum(1 for row in fail_rows if row['bailed_on_max_duration'] == 'true')
+        timeout_rate = round(timeout_fails / len(fail_rows), 3) if fail_rows else None
         usefulness_ex.append({
             'exercise': ex, 'language': lang, 'label': label, 'n_attempts': len(ex_rows),
             'n_models': len(model_pass_rates), 'models_passed': sum(model_pass_rates),
@@ -254,7 +333,51 @@ def build_dataset(rows):
             'avg_duration': round(avg_duration, 1),
             'flakiness': round(flakiness, 3) if flakiness is not None else None,
             'n_flaky_models': len(flakiness_scores), 'tries_hist': tries_hist,
+            'timeout_fails': timeout_fails, 'timeout_rate': timeout_rate,
         })
+
+    # Flakiness itself is a mean of per-model scores, most of which come from a tiny
+    # number of repeats — an exercise re-run by exactly one model that happened to split
+    # 1/2 reports flakiness 1.0 with the same confidence as an exercise re-run by seven
+    # models that consistently split ~40/60. Same small-sample problem as everywhere
+    # else in this file, just one level up (a rate computed FROM rates rather than from
+    # raw pass/fail counts). Fixed by shrinking each exercise's flakiness toward the
+    # evidence-weighted average flakiness across every OTHER exercise (most of which
+    # land at/near 0 — in practice most exercises simply aren't flaky), with the
+    # exercise's own n_flaky_models controlling how much its own evidence is trusted
+    # over that prior. FLAKINESS_PRIOR_STRENGTH=3 means "trust an exercise's own
+    # flakiness reading about as much as 3 models' worth of prior belief" — an exercise
+    # with 0-1 models of repeat evidence stays close to the pool average; one with 7 (like
+    # `clock`) is barely pulled at all, since its own evidence dominates a 3-strong prior.
+    FLAKINESS_PRIOR_STRENGTH = 3
+    evidenced = [d for d in usefulness_ex if d['n_flaky_models'] > 0]
+    if evidenced:
+        total_n = sum(d['n_flaky_models'] for d in evidenced)
+        flakiness_prior = sum(d['flakiness'] * d['n_flaky_models'] for d in evidenced) / total_n
+        for d in usefulness_ex:
+            if d['n_flaky_models'] > 0:
+                d['flakiness'] = round(
+                    shrink_toward_prior(d['flakiness'], d['n_flaky_models'], flakiness_prior, FLAKINESS_PRIOR_STRENGTH), 3)
+
+    # `discriminative` has the identical shape (p(1-p)x4) and the identical small-sample
+    # risk as flakiness above, just measured across MODELS instead of repeat runs of one
+    # model: a pin tested by only 2-3 models that happens to land near a 50/50 split
+    # would report "maximally discriminative" with the same false confidence paasio's
+    # flakiness did. Every current pin has n_models >= 10 so this isn't visibly broken
+    # today the way flakiness was, but it's not structurally protected either — a newly
+    # added or not-yet-caught-up-on pin could hit exactly this. Worth fixing proactively
+    # since `discriminative` feeds `score_weight` directly (sets how much a pin counts
+    # toward the capability score), which is higher-stakes than flakiness (which only
+    # discounts a weight that discriminative already set). Same empirical-Bayes shrink,
+    # this time weighted by n_models and pulled toward the evidence-weighted average
+    # discriminative score across every other pin.
+    DISCRIMINATIVE_PRIOR_STRENGTH = 3
+    total_nm = sum(d['n_models'] for d in usefulness_ex)
+    if total_nm:
+        discriminative_prior = sum(d['discriminative'] * d['n_models'] for d in usefulness_ex) / total_nm
+        for d in usefulness_ex:
+            d['discriminative'] = round(
+                shrink_toward_prior(d['discriminative'], d['n_models'], discriminative_prior, DISCRIMINATIVE_PRIOR_STRENGTH), 3)
 
     # "Quality" composite: how much a task is worth keeping, folded into one number —
     # rewards discriminative power, penalizes cost (duration) and inconsistency
@@ -269,7 +392,140 @@ def build_dataset(rows):
         duration_norm = (d['avg_duration'] - dur_min) / dur_span if dur_span else 0
         flakiness_component = d['flakiness'] if d['flakiness'] is not None else 0
         d['quality'] = round((d['discriminative'] + (1 - duration_norm) + (1 - flakiness_component)) / 3, 3)
+        # How much this exercise counts toward the chart1 capability score below —
+        # discriminative power x reliability, deliberately excluding cost (unlike
+        # `quality` above, which also penalizes slow exercises for the heatmap sort;
+        # an exercise being slow doesn't make it less informative about capability).
+        d['score_weight'] = round(d['discriminative'] * (1 - flakiness_component), 3)
     usefulness_ex.sort(key=lambda d: -d['discriminative'])
+
+    # ---- chart1: capability score per model — replaces a naive pass-rate-over-attempts.
+    # Three problems with "passed / total rows" that this fixes:
+    #   1. Repeat runs of the same (model, exercise) pair each counted as a separate
+    #      sample, so a model re-run 5x on one easy task outweighed a model tested once
+    #      on five different tasks. Fixed by grouping to one k/n per (model, exercise)
+    #      first, then shrinking it toward that exercise's own cross-model average pass
+    #      rate (impute_by_pin below) with strength MODEL_PIN_PRIOR_STRENGTH — NOT toward
+    #      an agnostic 0.5 (that was the first version of this fix, and it was wrong: a
+    #      model tested once on an easy exercise everyone else also passes shouldn't be
+    #      treated as a 50/50 coin flip just because it lacks repeat evidence. Real data
+    #      caught this — a model tested exactly once per exercise had its confident single
+    #      passes crushed toward 0.5 while a heavily-repeat-tested model's genuine
+    #      weaknesses were trusted at full strength, inverting the fairness this whole
+    #      system exists for). More repeats now means more trust in the model's OWN rate
+    #      over the pin's typical rate, with diminishing returns either way.
+    #   2. A model untested on a hard exercise got it dropped from its own denominator
+    #      entirely, inflating its rate relative to a model that attempted the same hard
+    #      exercise and failed. Fixed by using the SAME fixed denominator (every pin's
+    #      weight) for every model; an untested pin is imputed with that exercise's own
+    #      cross-model average pass rate (usefulness_ex's `pass_rate_across_models`) —
+    #      a neutral "what a typical model does here" guess, not a free pass or a fail.
+    #   3. Every exercise counted equally regardless of how much it actually reveals.
+    #      Fixed by weighting each pin's contribution by discriminative power (how much
+    #      it splits models — see usefulness_ex above) x reliability (1 - flakiness),
+    #      so a consistent, model-splitting exercise like a hard algorithmic task counts
+    #      for more than one everybody-passes-it-with-mixed-luck exercise.
+    # Ranking uses `projected_pct` — see its own comment further down, right before the
+    # sort call, for the full reasoning (it replaced a floor-only ranking, which was
+    # itself the fix for a plain-midpoint ranking; both prior versions and why they
+    # weren't quite right are documented there).
+    weight_by_pin = {(d['language'], d['exercise']): d['score_weight'] for d in usefulness_ex}
+    impute_by_pin = {(d['language'], d['exercise']): d['pass_rate_across_models'] for d in usefulness_ex}
+    full_weight = sum(weight_by_pin.values())
+    # Roughly matches the implicit pseudo-observation count (z^2 ~= 3.84) a Wilson
+    # interval would use — same amount of built-in skepticism toward small samples,
+    # just redirected at a sensible target instead of 0.5.
+    MODEL_PIN_PRIOR_STRENGTH = 4
+    # Needed to trust a model's own demonstrated bias (how much it over/under-performs
+    # the pool on the pins it HAS been tested on) enough to extrapolate that bias onto
+    # its untested pins. Higher than MODEL_PIN_PRIOR_STRENGTH because "this model is
+    # systematically better/worse than typical" is a bigger claim than "this model's
+    # rate on one specific pin" — it needs evidence spread across several distinct pins,
+    # not just repeats of one, before it's trusted over "assume no bias, use the pool
+    # average" (bias=0, which is exactly what expected_pct already assumes for everyone).
+    BIAS_PRIOR_STRENGTH = 6
+
+    chart1 = []
+    for m in models_sorted:
+        sub_by_pin = defaultdict(list)
+        for row in shortlist_rows:
+            if row['srv.-m'] == m:
+                sub_by_pin[(row['language'], row['exercise'])].append(row)
+        if not sub_by_pin:
+            continue
+
+        # Pass 1: per-tested-pin estimate, plus this model's own bias vs the pool on the
+        # pins it's actually been tested on (positive = does better than typical there).
+        tested_est = {}
+        tested = exercises_passed = exercises_failed = 0
+        bias_num = bias_weight = 0.0
+        for lang, ex in pins:
+            rs = sub_by_pin.get((lang, ex))
+            if not rs:
+                continue
+            tested += 1
+            w = weight_by_pin[(lang, ex)]
+            k = sum(1 for r in rs if r['pass'] == 'true')
+            n = len(rs)
+            est = shrink_toward_prior(k / n, n, impute_by_pin[(lang, ex)], MODEL_PIN_PRIOR_STRENGTH)
+            tested_est[(lang, ex)] = est
+            if k / n >= 0.5:
+                exercises_passed += 1
+            else:
+                exercises_failed += 1
+            bias_num += w * (est - impute_by_pin[(lang, ex)])
+            bias_weight += w
+        raw_bias = bias_num / bias_weight if bias_weight else 0.0
+        bias = shrink_toward_prior(raw_bias, tested, 0.0, BIAS_PRIOR_STRENGTH)
+
+        # Pass 2: assemble floor (untested -> 0), ceiling (untested -> 1), expected
+        # (untested -> pool average, no bias adjustment — the plain neutral guess), and
+        # projected (untested -> pool average adjusted by this model's own shrunk bias,
+        # clamped to a valid probability) across every pin.
+        num_expected = num_worst = num_best = num_projected = 0.0
+        for lang, ex in pins:
+            w = weight_by_pin[(lang, ex)]
+            if (lang, ex) in tested_est:
+                est = tested_est[(lang, ex)]
+                num_expected += w * est
+                num_worst += w * est
+                num_best += w * est
+                num_projected += w * est
+            else:
+                pool_avg = impute_by_pin[(lang, ex)]
+                num_expected += w * pool_avg
+                num_best += w * 1.0
+                num_projected += w * min(1.0, max(0.0, pool_avg + bias))
+        expected = num_expected / full_weight if full_weight else 0
+        floor = num_worst / full_weight if full_weight else 0
+        ceiling = num_best / full_weight if full_weight else 0
+        projected = num_projected / full_weight if full_weight else 0
+        pass_tries = [int(row['tries_taken']) for row in shortlist_rows
+                      if row['srv.-m'] == m and row['pass'] == 'true' and row['tries_taken']]
+        avg_tries = round(sum(pass_tries) / len(pass_tries), 2) if pass_tries else None
+        chart1.append({
+            'label': short_label(m), 'tested': tested, 'total_pins': len(pins),
+            'exercises_passed': exercises_passed, 'exercises_failed': exercises_failed,
+            'projected_pct': round(projected * 100, 1),
+            # floor_pct: assumes every untested pin fails; ceiling_pct: assumes every
+            # untested pin passes. Both are still shown as the honest bracket around
+            # projected_pct — a fully-tested model has floor == projected == ceiling.
+            'floor_pct': round(floor * 100, 1), 'expected_pct': round(expected * 100, 1),
+            'ceiling_pct': round(ceiling * 100, 1), 'avg_tries_on_pass': avg_tries,
+        })
+    # Ranked by projected_pct, not floor_pct — see BIAS_PRIOR_STRENGTH above for why
+    # projected_pct is safe to rank by where plain expected_pct wasn't: expected_pct
+    # assumes every untested pin performs at the POOL's typical rate with full
+    # confidence regardless of how little of the model has actually been tested, which
+    # let an under-tested model with a small favorable sample float above a much more
+    # thoroughly-tested peer (real bug, caught in the previous version of this file).
+    # projected_pct only extrapolates a model's OWN demonstrated bias onto its untested
+    # pins, and shrinks that bias toward zero (i.e. toward the same pool-typical
+    # assumption expected_pct uses) when there isn't much tested evidence to support it
+    # — so a model with few tested pins can't confidently extrapolate a large bias, and
+    # projected_pct degrades gracefully toward expected_pct's neutral guess rather than
+    # floor_pct's hard-zero assumption.
+    chart1.sort(key=lambda d: (-d['projected_pct'], d['avg_tries_on_pass'] if d['avg_tries_on_pass'] is not None else 999))
 
     # ---- matrix: heatmap cells. Rows (exercises) ranked by quality, best first;
     # columns (models) ranked by average normalized token cost, cheapest first. ----
@@ -297,7 +553,9 @@ def build_dataset(rows):
             npass = sum(1 for row in sub if row['pass'] == 'true')
             pass_tries = [int(row['tries_taken']) for row in sub if row['pass'] == 'true' and row['tries_taken']]
             avg_tries = round(sum(pass_tries) / len(pass_tries), 2) if pass_tries else None
-            cells.append({'pass': npass, 'total': len(sub), 'rate': npass / len(sub), 'avg_tries': avg_tries})
+            timeouts = sum(1 for row in sub if row['bailed_on_max_duration'] == 'true')
+            cells.append({'pass': npass, 'total': len(sub), 'rate': npass / len(sub), 'avg_tries': avg_tries,
+                           'timeouts': timeouts})
         matrix.append({'exercise': ex, 'language': lang, 'label': label,
                         'quality': quality_by_pin[(lang, ex)], 'cells': cells})
 
@@ -309,6 +567,9 @@ def build_dataset(rows):
         'model_quant': model_quant, 'chart3': chart3, 'chart4': chart4,
         'fail_n': len(fail_rows_all), 'detail': detail,
         'perf': perf, 'usefulness': {'exercises': usefulness_ex}, 'cost_spread': cost_spread,
+        # Labels for the exercise filter's initial selection — see PINS_DEFAULT's
+        # comment: it's a seed for the UI now, not a computation scope.
+        'default_exercises': [pin_label[p] for p in default_pins],
     }
 
 
@@ -321,7 +582,7 @@ def main():
     html = template.replace('__DATA__', json.dumps(data))
     open(OUTPUT_PATH, 'w').write(html)
     print(f'wrote {OUTPUT_PATH} ({len(html):,} bytes) from {len(rows)} rows, '
-          f'{data["summary"]["shortlist_n"]}/{len(PINS_INTENDED)} shortlist tasks active')
+          f'{data["summary"]["total_tasks"]} tasks total ({data["summary"]["default_tasks"]}/{len(PINS_DEFAULT)} default-shown)')
 
 
 if __name__ == '__main__':

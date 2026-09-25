@@ -48,25 +48,33 @@ exercise name alone — grouping by name alone silently blends unrelated tasks t
 (this was a real bug caught mid-project; see the `distinct_tasks` vs `total_exercise_names`
 split in the stat row).
 
-**The shortlist.** Only one model (the "main" one — whichever ran the most distinct
-exercises, i.e. the full ~225-task suite) has been tested on everything. The other ten
-variants were each run against a fixed 15-task subset (`shortlist-15.txt`, pinned
-`(language, exercise)` pairs) for a controlled, apples-to-apples comparison. Every chart
-except the two "global" ones (tries-taken histogram, failure-mode breakdown, which use the
-full dataset) is scoped to this shortlist — that's the only slice where every model has
-directly comparable data.
+**The task list is fully dynamic, not a fixed shortlist.** `pins` in `build_dataset()` is
+every `(language, exercise)` pair with at least one row, discovered fresh from the tsv on
+every regeneration — currently 224 of them. There's no list to keep in sync by hand as the
+harness starts running new comparison tasks; a task just needs one row to show up
+everywhere (the heatmap, the capability score, the usefulness table), and a task that's
+had every one of its rows deleted (e.g. voided by a harness bug) drops back out
+automatically, for the same reason — it simply isn't in the tsv to be discovered from
+anymore. One model (the "main" one — whichever has run the most distinct tasks, correctly
+counted by `(language, exercise)` pair, not exercise name alone, same collision-avoidance
+as everywhere else in this file) has been tested against nearly all of them; every other
+variant has a partial, uneven slice. `generate_viz_data.py` no longer needs a
+"shortlist vs. full suite" split internally at all — that distinction only exists in the
+browser now, as the exercise filter's *default selection*.
 
-**Missing exercises are dropped, not faked.** If every row for a shortlist task gets
-deleted (e.g. a harness bug voided its results and someone cleaned up the tsv),
-`generate_viz_data.py` excludes that task from the shortlist entirely — it won't appear in
-the heatmap, the usefulness scatter, or count toward `shortlist_n`. The alternative (letting
-it default to 0% pass / 0s duration) would be indistinguishable from "every model tried and
-instantly failed," which is a worse lie than just not knowing. `shortlist_n` reflects
-*active* tasks; `shortlist_n_intended` (currently 15) is the original pin count, kept around
-mostly for sanity-checking how much has been pruned. The page's own prose ("N-task
-shortlist", "N failed runs", etc.) is templated from `data.summary` at load time
-(`<span id="shortlistN1">` and friends near the top of the JS), not hardcoded — so pruning
-more rows won't leave stale numbers in the descriptions.
+**`PINS_DEFAULT`** (still the original 15-task pin list, from `shortlist-15.txt`) seeds
+which tasks the exercise filter starts with checked — emitted as `data.default_exercises`
+— so the page opens to a small, curated, roughly-apples-to-apples comparison instead of
+every task the harness has ever touched. It's purely a UI starting point now, not a
+computation scope: nothing stops a chart from including a task outside it once the filter
+is widened. A default pin that's lost all its data (same voided-task case as above) is
+dropped from `default_exercises` the same way it's dropped from `pins`, so it can't seed a
+filter selection for a task that no longer exists. `data.summary.total_tasks`
+(`len(pins)`) and `data.summary.default_tasks` (`len(default_pins)`) are both emitted for
+the stat row and prose; the page's own prose (`<span id="shortlistN1">` and friends near
+the top of the JS) is kept live off `activeExercises.size` — re-run every time the filter
+changes, not just once at load — since that count can now change at any time, not just
+between regenerations.
 
 **Heatmap axes are sorted, not incidental.** Rows (exercises) rank top-to-bottom by a
 `quality` composite — the mean of discriminative power, `1 - normalized duration`, and
@@ -77,6 +85,105 @@ token cost, cheapest first. Both scores are computed once in `build_dataset()` a
 same `avg_tokens_norm` the tokens-generated chart uses. A task that looks great on one axis
 (e.g. `clock`'s ~0.99 discriminative score) can still rank low overall if it's also
 expensive and flaky — the composite is deliberately not just "cost."
+
+**The capability score.** A naive "passed / total attempted" pass rate has three problems
+once models are tested unevenly (different coverage of the task list, different numbers of
+repeat runs per task) — all three showed up in real data during development, which is why
+the score isn't a raw rate:
+
+1. *Repeat runs of the same task shouldn't each count as an independent sample.* A model
+   re-run 5x on one easy task would otherwise outweigh a model tested once on five
+   different tasks. Fixed by grouping to one k/n per (model, task) pair first, then
+   shrinking it (`shrink_toward_prior()` in `generate_viz_data.py`, mirrored as
+   `shrinkTowardPrior()` in the template) toward that task's own cross-model average pass
+   rate — not toward an agnostic 0.5. **This went through a real, shipped bug**: the first
+   version used a [Wilson score interval](https://en.wikipedia.org/wiki/Binomial_proportion_confidence_interval#Wilson_score_interval)
+   center, which shrinks small samples toward 0.5. Live data caught why that's wrong — a
+   model tested exactly once per task (mostly single confident passes) had those passes
+   crushed toward a 50/50 coin flip for "lacking repeat evidence," while a heavily
+   repeat-tested model's genuine below-average results on several tasks were trusted at
+   full strength, so the repeat-light model ranked *below* one with more, worse-looking
+   evidence — backwards from what the score is supposed to measure. Shrinking toward the
+   task's own typical pass rate instead means a single pass on a task everyone else also
+   passes is trusted close to that task's real difficulty from the start, while a
+   repeat-tested model's genuine weak spot still shows up in full once there's enough of
+   its own evidence to outweigh the prior (`MODEL_PIN_PRIOR_STRENGTH = 4`, roughly the
+   same amount of built-in skepticism a Wilson interval has, just pointed at a sensible
+   target instead of 0.5).
+2. *An untested task shouldn't just drop out of a model's own denominator.* That silently
+   rewards under-testing — a model untested on the two hardest tasks would otherwise look
+   better than one that attempted them and failed. Fixed by scoring every model against the
+   *same* fixed set of task weights (all 15 pins) and ranking on the **floor**: every
+   untested task is assumed to fail. A fully-tested model's floor equals its real weighted
+   score exactly, so a coverage gap can never push a model's rank above a more thoroughly-
+   tested peer — it can only ever be caught up to once its own real results land, never
+   passed on the strength of what's still unknown. `expected_pct` (each untested task
+   imputed at that task's own cross-model average pass rate, `pass_rate_across_models` from
+   `usefulness_ex` — a neutral "what a typical model does here" guess) and `ceiling_pct`
+   (untested assumed to *pass*) are computed alongside and shown in the tooltip/table for
+   context, but only the floor decides rank. This was a real bug caught after shipping the
+   first version: ranking by the neutral `expected_pct` let a 9/15-tested model with a
+   strong-but-small sample float above a 14/15-tested model with more (and slightly worse)
+   real evidence, which is exactly the "missing tests get an unfair boost" failure mode this
+   whole scoring system exists to prevent. The bar's solid fill is the floor; the faint
+   extension past it is the gap up to the ceiling, and collapses to nothing at full
+   15/15 coverage.
+3. *Not every task is equally informative.* Each task's contribution is weighted by its
+   discriminative power (how much it splits models — see `usefulness_ex` below) times its
+   reliability (`1 - flakiness`), so a hard, consistently model-splitting task counts for
+   more than an easy one every model handles the same way, or a genuinely flaky one whose
+   repeat runs disagree with themselves. This weight is `usefulness_ex[].score_weight` —
+   shown as its own sortable column ("Score weight") in the exercise usefulness table, so
+   the score's weighting is inspectable rather than opaque. It's related to but distinct
+   from that same table's `quality` column (which also factors in cost, for ordering the
+   heatmap's rows) — a slow-but-discriminating task still counts fully here, since being
+   slow doesn't make a task less informative about capability.
+
+   `flakiness` has its own small-sample problem, one level up from the model/exercise
+   pairs above: it's a *mean of per-model rates*, and most of those rates come from only
+   1-2 repeat runs. An exercise re-run by exactly one model that happened to split 1/2
+   reported flakiness 1.0 with the same apparent confidence as an exercise re-run by
+   seven models that consistently split ~40/60 — feeding the raw rate through
+   `shrink_toward_prior` toward 0.5 wouldn't fix this (it would pull confidently-consistent
+   small samples toward 0.5, which the p(1-p) formula would then read as *more* flaky,
+   backwards from what's wanted). Instead each exercise's raw flakiness is shrunk toward
+   the evidence-weighted average flakiness across every other exercise — in practice, most
+   exercises simply aren't flaky, so that average sits low — with `n_flaky_models`
+   controlling how much its own reading is trusted over that pooled prior
+   (`FLAKINESS_PRIOR_STRENGTH = 3` treats an exercise's own evidence as trustworthy once
+   it's backed by about as many models as the prior itself represents). A single-model
+   1/2 split now reads around 0.5, not 1.0; a well-evidenced exercise like `clock`
+   (7 models' worth of repeat data) barely moves, since its own evidence dominates.
+
+   `discriminative` has the identical shape (`p(1-p)*4`) and the identical risk, just
+   measured across *models tested on a pin* (`n_models`) instead of *repeat runs of one
+   model*: a pin tested by only 2-3 models landing near a 50/50 split would report
+   "maximally discriminative" with the same false confidence a single-model flaky reading
+   did. Every current pin has `n_models >= 10`, so this hasn't visibly broken yet the way
+   flakiness did, but it isn't structurally protected — a newly added or
+   not-yet-caught-up-on pin could hit it directly, and unlike flakiness (which only
+   discounts a weight `discriminative` already set), a bad `discriminative` reading would
+   corrupt `score_weight` at the source. Shrunk the same way, weighted by `n_models`
+   toward the evidence-weighted average `discriminative` across every other pin
+   (`DISCRIMINATIVE_PRIOR_STRENGTH = 3`).
+
+Ties are broken by average tries-to-pass, same as before. A mixed-result task counts as an
+overall "pass" toward `exercises_passed`/the table view using a `>= 50%` rule (majority of
+that model's repeat runs on it succeeded).
+
+**Timeout rate.** `usefulness_ex[].timeout_rate` is the fraction of a task's failures
+where `bailed_on_max_duration` was true in the tsv — the harness cut the run off for
+running too long, rather than the model erroring out or the run's own logic failing.
+Deliberately kept separate from `flakiness`/`quality`/`score_weight` rather than folded
+in: a model that reliably times out on a task every single time is *consistent*, not
+flaky, so treating "high timeout share" as more inconsistency would be measuring the
+wrong thing. It's shown as its own column (with the raw count in parentheses) so a high
+value is a visible hint that a task's duration budget may be too tight, worth checking
+before trusting its other numbers — not an automatic penalty baked into the score.
+Surfaced on the heatmap too: a cell with any timed-out run gets a small corner marker
+(hover for exactly which run(s), and how many of that cell's failures were timeouts vs.
+genuine), and `detail[].bailed` carries the same flag per individual row for the matrix
+tooltip's run-history lines.
 
 **Model labels.** `srv.-m` in the tsv is a full gguf path; `generate_viz_data.py`'s `LABELS`
 dict maps the filename to a short display name. Add an entry there when a new model variant
@@ -101,23 +208,96 @@ has these top-level keys, each consumed by one or more charts:
 
 | Key | Feeds | Notes |
 |---|---|---|
-| `summary` | stat-tile row, prose spans | overall counts, main model's full-suite pass rate |
-| `chart1` | "Pass rate by model" bars | shortlist-scoped; ties broken by avg tries-to-pass |
+| `summary` | stat-tile row, prose spans | overall counts, main model's full-suite pass rate, `total_tasks`/`default_tasks` |
+| `default_exercises` | seeds the exercise filter's initial selection | labels for `PINS_DEFAULT`; everything else below is filterable to any subset of `pins`, this is just what starts checked |
+| `chart1` | "Capability score by model" bars | filterable to the active task/model selection; ranked by `projected_pct`, not a raw pass rate — see "The capability score" below |
 | `perf` | "Generation speed", "Tokens generated", "Quality vs. token cost" | `perf.points` = raw per-run data; `perf.overall`/`perf.by_exercise` = pre-aggregated per model; `tokens_norm` = tokens ÷ that exercise's own mean (only among models that passed it) — the "fair" comparison basis, default view |
-| `matrix` / `matrix_models` | "Pass/fail by task × model" heatmap | one row per active shortlist task; a `null` cell = no data for that (model, task) pair, rendered blank, never red; rows ranked by `quality`, columns by avg token cost |
-| `cost_spread` | "Pass vs. fail cost, per exercise" | unlike `perf`, includes *failed* runs too — `cost_spread.points` is every shortlist attempt (pass or fail) with both `tokens` and `duration`, so the chart can toggle metric client-side and compute the pass/fail averages and their gap per exercise on the fly |
-| `detail` | "Per-test breakdown" table | every individual shortlist row, sortable client-side |
-| `usefulness` | "Exercise usefulness" scatter + table | `discriminative = p·(1-p)·4` where `p` = fraction of models that passed (peaks at an even split, zero when everyone agrees); `flakiness` = same formula applied within a model's repeated runs, `null` when no task/model pair has more than one run to judge consistency from |
-| `chart3` | "Tries taken" stacked columns | **not** shortlist-scoped — every run in the tsv |
-| `chart4` / `fail_n` | "What failed runs had in common" bars | **not** shortlist-scoped — every failed run in the tsv |
+| `matrix` / `matrix_models` | "Pass/fail by task × model" heatmap | one row per task with data (currently up to `total_tasks`, filtered down to the active exercise selection for display); a `null` cell = no data for that (model, task) pair, rendered blank, never red; rows ranked by `quality`, columns by the sort option chosen (avg token cost or projected capability); `cell.timeouts` drives the corner marker on cells with a timed-out run |
+| `cost_spread` | "Pass vs. fail cost, per exercise" | unlike `perf`, includes *failed* runs too — `cost_spread.points` is every attempt (pass or fail) with both `tokens` and `duration`, so the chart can toggle metric client-side and compute the pass/fail averages and their gap per exercise on the fly |
+| `detail` | "Per-test breakdown" table, matrix tooltip's run history | every individual row (respecting the active filter), sortable client-side; `bailed` flags a run that hit the harness's max-duration limit |
+| `usefulness` | "Exercise usefulness" scatter + table | `discriminative = p·(1-p)·4` where `p` = fraction of models that passed (peaks at an even split, zero when everyone agrees); `flakiness` = same formula applied within a model's repeated runs, `null` when no task/model pair has more than one run to judge consistency from; `timeout_rate` = fraction of a task's failures that were timeouts rather than genuine failures — see "Timeout rate" below |
+| `chart3` | "Tries taken" stacked columns | **not** filterable — every run in the tsv, regardless of the active model/exercise selection |
+| `chart4` / `fail_n` | "What failed runs had in common" bars | **not** filterable — every failed run in the tsv, regardless of the active model/exercise selection |
+
+## The floating model/exercise filter
+
+Every filterable chart from "Capability score by model" through "Per-test breakdown"
+responds to a global filter panel (the "Filter" button, top-right) instead of reading
+`data.*` directly. On every filter change, `applyFilters()` in the template:
+
+1. Filters `data.cost_spread.points` (every attempt, pass or fail, across every task
+   `pins` discovered) down to the active models/exercises/date range — this is the one
+   raw source with enough fields (`model`, `exercise`, `pass`, `tokens`, `duration`,
+   `tries`, `timestamp`) to recompute everything below it. The date range is a
+   dual-handle slider (two overlapping `<input type="range">`s) bounded to the actual
+   min/max timestamp in the data — it filters on *when the eval ran*, not anything about
+   the exercise itself.
+2. Re-derives `chart1` (capability score), `perf.points`/`perf.overall`-equivalents
+   (tokens/duration/tries panels, speed, quality-vs-tokens), and the heatmap's
+   cells/columns — all as small JS functions (`deriveChart1`, `derivePerfPoints`,
+   `derivePerfOverall`, `deriveMatrixFiltered`) mirroring the same logic
+   `generate_viz_data.py` uses, just scoped to whatever's currently checked.
+3. Re-invokes each chart's render function with the freshly derived data.
+
+**Exercise checklist: search, sort, and count**, since the exercise list is the full
+dynamic task set (currently 200+), not a fixed 15 — a plain unsorted checkbox list at
+that size stops being navigable. `renderExerciseList()` in the template filters by the
+search box (substring match against the label) and re-orders the *displayed* list by
+`quality` (`data.matrix`'s own default order — no re-sort needed), alphabetically, or by
+`n_models` (from `data.usefulness.exercises`, "most tested"); none of that touches the
+underlying data or any other chart's ordering, it's purely how the checklist itself is
+browsed. `(N/M)` counts sit next to both the "Models" and "Exercises" section headers,
+live off `activeModels.size`/`activeExercises.size`. A **Default** button (next to
+All/None) resets the exercise selection back to `data.default_exercises` in one click.
+
+**Two deliberate scope limits**, both stated in the filter panel's own copy so they're
+never a silent surprise:
+- **Tries-taken and failure-mode charts (the last two on the page) ignore the filter.**
+  They're explicitly global/unfilterable already (see the table above) — they'd need a
+  redesign to mean "filtered by the active model/exercise selection" in the first place.
+- **Exercise usefulness (discriminative/flakiness/quality) only responds to the
+  exercise filter, not the model filter.** Those numbers are properties of the task
+  across the *whole* model field by design (e.g. "does this task split models 50/50"
+  only makes sense against the full roster) — filtering rows out from `data.usefulness.
+  exercises` is a checkbox click away from being correct if you ever want true
+  recomputation, but it wasn't worth porting the discriminative/flakiness formulas to
+  JS twice for a metric whose whole point is "how models generally behave," not "how
+  the models I've currently got checked behave."
+
+If you add a chart that should respect the filter, give its render function a plain
+data parameter (not a `data.*` read) and call it from `applyFilters()` alongside the
+others — every existing render function already follows that pattern.
+
+**Persistence.** The selection is saved to `localStorage` (key `eval-viz-filters-v2`)
+every time `applyFilters()` runs, and restored once at page load before the panel is
+built. Models are stored as a *diff from "everything selected"* (which are deselected,
+not which are selected) — unchanged from before, since models still default to
+all-on, so a model variant added between sessions defaults to selected rather than
+silently vanishing from a stale allow-list. **Exercises are stored as a diff from
+`data.default_exercises` instead** (which are added beyond it, which are removed from
+it) — since exercises default to a small curated subset, not everything, "deselected
+from everything" wouldn't mean anything here; storing both directions means a task the
+harness only just started running still shows up correctly unchecked (it was never in
+the default, and nobody explicitly added it) without needing to be listed anywhere in
+this saved state at all. The date range is stored as absolute timestamps normally, but
+as `null`/`null` when it's the full unrestricted range, so "all time" stays "all time"
+even as new runs extend the actual max timestamp in later sessions — a literal saved
+range would otherwise silently clip out new data. (The storage key moved from `-v1` to
+`-v2` when the exercise scheme changed to add/remove; old saved selections are just
+dropped once, falling back to the new default — reasonable, since the exercise universe
+itself grew from 15 tasks to 200+ in that same change, so old data barely applied
+anyway.)
 
 ## Extending it
 
-- **New eval data lands / bad rows get deleted:** just re-run the script. Nothing else.
+- **New eval data lands / bad rows get deleted:** just re-run the script. New tasks show
+  up automatically (unchecked by default, unless they happen to be in `PINS_DEFAULT`);
+  deleted tasks disappear automatically. Nothing else needed.
 - **New model variant:** add its gguf filename → label to `LABELS` in
   `generate_viz_data.py`.
-- **Change the shortlist:** edit `PINS_INTENDED`. Everything downstream (chart1, matrix,
-  perf, usefulness) recomputes from it automatically.
+- **Change what the exercise filter starts with checked:** edit `PINS_DEFAULT`. This no
+  longer scopes any computation (`pins` is always every task with data) — it only
+  changes `data.default_exercises`, i.e. the filter's initial selection.
 - **New chart:** add a card + render function to `eval-viz-template.html` (follow the
   existing pattern — an SVG built from a JS template string, a `showTip`/`hideTip` hover
   handler, CSS custom properties for light/dark), and whatever new data it needs to

@@ -15,13 +15,13 @@
 # language     exercise                  max_tries  max_dur   baseline_result  passed_at_try/6  duration_s
 
 javascript     triangle                  2 # pass  1  5.4
-javascript     grade-school              2 # pass  1  18.2
+javascript     grade-school              3 # pass  1  18.2
 
-go             two-bucket                3 # pass  4  76.2
-javascript     tournament                3 # pass  2  91.3
+go             two-bucket                4 # pass  4  76.2
+javascript     tournament                4 # pass  2  91.3
 go             book-store                5 # pass  3  141.0
-go             bowling                   5 # pass  6  356.4
-cpp            clock                     4 # fail  -  711.7
+go             bowling                   6  1200  # pass  6  356.4
+cpp            clock                     4  4000  # fail  -  711.7
 
 cpp            spiral-matrix             4  3600  # fail  -  5500.6
-go             paasio                             # fail  -  60.2
+go             paasio                    4  1800  # fail  -  60.2
