@@ -1,0 +1,29 @@
+# Exercises where requant-like GSQ-RCO and Ternary Bonsai got different results on hard-set.txt
+# (different pass/fail or different passing try). Dropped: say, forth, wordy, palindrome-products
+# (same try on both) and simple-cipher, rational-numbers (failed on both).
+
+javascript     scale-generator           4  600   # 2-4-F spread
+python         sgf-parsing               5  1100  # 2-3 on Qwen, fails on opus?, barely Bonsai
+go             simple-linked-list        4  400   # 1-4, quick
+#java            word-search              6  500   # 8!
+java            full-word-search              9  500   # 8!
+python          pov                      5  500
+javascript      zebra-puzzle             5  800
+
+#javascript     grade-school              3 
+go             full-paasio               4  1800  
+go             bowling                   6  1200
+
+
+python paasio              6  600   # 
+rust    forth                4  500   # base passed on try 4
+
+#rust           acronym                   4  400  # fine but similar results/time to others
+#javascript     house                     4  500  # not enough differentiation
+#javascript     promises                  4  500  # too easy
+#java           food-chain                5  500  # not enough differentiation
+#cpp            sublist                   4  2000 # slow, no fails, medium spread
+#rust grep # 2 too easy
+#rust grep # 2 too easy
+#  javascript     alphametics               5  1000  # 1-3-5--F spread  too flaky
+# rust            simple-cipher            3  400   # simple issue, pass/fail by 2 < ECLIPSED BY SIMPLE_linked list

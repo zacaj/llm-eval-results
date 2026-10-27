@@ -201,6 +201,45 @@ palette's three CVD-safe categorical slots (`--quant-iq3xxs/-iq4xs/-q4kxl`, defi
 the top of `eval-viz-template.html` for light/dark); color is always paired with the model
 name in text, never the only signal.
 
+### Seeds
+
+A (model, exercise, seed) triple is one independent sample. Only the **latest run per seed**
+is scored (rows with an empty seed, i.e. legacy greedy runs, share one seed), so repeating
+the same seed can't stack up identical failures. Superseded runs stay in the matrix hover
+table, struck through. Per (model, exercise) the pass rate is therefore passing seeds /
+seeds, which feeds the capability score continuously. Classification is three-way — **Passed**
+(every seed passed), **Mixed** (some did), **Failed** (none did) — instead of a majority vote,
+and the cross-model pass rate uses each model's fractional seed pass rate.
+
+**Seed consistency.** The eval stops re-running a test once a seed passes, so a passing cell
+with fewer seeds than the maximum has *unknown* seeds, not failed ones. `deriveChart1` fills
+those in as passing with probability `q`, the model's seed consistency: among its multi-seed
+cells with at least one pass, the pooled share of seeds that passed (all 2/2 -> 1.0, mostly
+1/3 -> ~0.33), shrunk toward the same figure across all models (strength 4). Missing seeds
+up to the largest seed count seen (3 today) are imputed that way before the usual shrink toward
+the exercise's pool rate, so a 1/1 is worth a full 3/3 for a perfectly consistent model and
+less for one that usually needs several seeds. All-fail cells are not imputed (failures keep
+being retried, so they aren't censored). A model with no multi-seed evidence gets the
+all-model figure. The page's tooltip shows each model's `q`. (The static `chart1` in the
+JSON is unused by the page and does not include this.)
+
+### Tries score (separate from capability)
+
+The capability score above is pass/fail only. The **Tries** column is a second, independent
+0-100 score for how many tries each attempt took *relative to other models on the same
+exercise*. Per attempt: a pass at try `k` scores `0.75 + 0.25*tanh((mu - k)/2)` (so 75 =
+matched the typical model, ~100 = far fewer tries than others needed, ~50 = far more),
+and a failure after `k` tries scores `0.35*exp(-max(0, k - mu)/2)` (at most 35; near 35
+when the passes also took about `k` tries, near 0 when most models passed in far fewer).
+`mu` is the mean of the *other* models' average passing tries on that exercise (each
+model counts once; the attempt's own model is excluded), shrunk toward the global typical
+passing tries when few others passed. Per (model, exercise) the attempt scores are
+averaged and shrunk toward that exercise's cross-model mean; the model score is the plain
+mean over tested exercises, shrunk toward the global mean (strength 3). It's computed
+per attempt in `generate_viz_data.py` (`eff` on each `cost_spread` point) and aggregated
+live in `deriveChart1`, so it follows the model/exercise/date filters. Because failures
+score low it also moves with pass rate; it isn't used for ranking.
+
 ## What each chart reads
 
 The JSON payload (embedded in `eval-viz.html` as `<script id="data" type="application/json">`)

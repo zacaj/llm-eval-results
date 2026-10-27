@@ -16,13 +16,18 @@
     --border:         rgba(11,11,11,0.10);
     --seq-blue:       #2a78d6;
     --seq-blue-dark:  #1c5cab;
+    --seq-purple:     #7c4fd1;
     --status-good:      #0ca30c;
     --status-critical:  #d03b3b;
     --good-fast:      #0a6e0a;
-    --good-slow:      #bfe6b4;
+    --good-mid:       #d9d94a;
+    --good-slow:      #e8842a;
     --quant-iq3xxs:   #2a78d6;
     --quant-iq4xs:    #eb6834;
     --quant-q4kxl:    #1baf7a;
+    --quant-iq3s:     #3cb8d9;
+    --quant-iq1m:     #7c4fd1;
+    --quant-tq20:     #d9488f;
     --quant-other:    #898781;
   }
   @media (prefers-color-scheme: dark) {
@@ -38,13 +43,18 @@
       --border:         rgba(255,255,255,0.10);
       --seq-blue:       #3987e5;
       --seq-blue-dark:  #256abf;
+      --seq-purple:     #a77dea;
       --status-good:      #0ca30c;
       --status-critical:  #e66767;
       --good-fast:      #1fae1f;
-      --good-slow:      #2f5c31;
+      --good-mid:       #a6a530;
+      --good-slow:      #c2661c;
       --quant-iq3xxs:   #3987e5;
       --quant-iq4xs:    #d95926;
       --quant-q4kxl:    #199e70;
+      --quant-iq3s:     #5cc8e6;
+      --quant-iq1m:     #a77dea;
+      --quant-tq20:     #e872ae;
       --quant-other:    #898781;
     }
   }
@@ -60,13 +70,18 @@
     --border:         rgba(255,255,255,0.10);
     --seq-blue:       #3987e5;
     --seq-blue-dark:  #256abf;
+    --seq-purple:     #a77dea;
     --status-good:      #0ca30c;
     --status-critical:  #e66767;
     --good-fast:      #1fae1f;
-    --good-slow:      #2f5c31;
+    --good-mid:       #a6a530;
+    --good-slow:      #c2661c;
     --quant-iq3xxs:   #3987e5;
     --quant-iq4xs:    #d95926;
     --quant-q4kxl:    #199e70;
+    --quant-iq3s:     #5cc8e6;
+    --quant-iq1m:     #a77dea;
+    --quant-tq20:     #e872ae;
     --quant-other:    #898781;
   }
 
@@ -111,7 +126,7 @@
      proven/max/failed/tested stats. Don't repurpose .hbar-row's own columns for
      chart1-only needs — that broke the shared consumers once already. */
   .hbar-row { display: grid; grid-template-columns: 320px 1fr 90px; align-items: center; gap: 10px; padding: 3px 0; }
-  .hbar-grid-cols { grid-template-columns: 320px 1fr 58px 58px 50px 50px; }
+  .hbar-grid-cols { grid-template-columns: 320px 1fr 58px 58px 50px 50px 50px 50px; }
   .hbar-header { display: grid; align-items: end; gap: 10px; padding: 0 0 4px; font-size: 11px; color: var(--text-muted); }
   .hbar-header > div:not(:first-child):not(:nth-child(2)) { text-align: right; }
   .hbar-label { display: flex; align-items: center; justify-content: flex-end; gap: 6px; font-size: 12px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; }
@@ -170,6 +185,19 @@
   .hm-cell.timed-out::after {
     content: ''; position: absolute; top: 2px; right: 2px;
     width: 6px; height: 6px; border-radius: 50%;
+    background: #ffffff; border: 1.3px solid #000000;
+  }
+  /* Context-exhaustion marker: white square with a black ring in the bottom-left corner
+     — a different shape and corner from the timeout dot so both can show on one cell. */
+  .hm-cell.ctx-exhausted::before {
+    content: ''; position: absolute; bottom: 2px; left: 2px;
+    width: 6px; height: 6px;
+    background: #ffffff; border: 1.3px solid #000000;
+  }
+  .ctx-swatch { position: relative; display: inline-block; }
+  .ctx-swatch::before {
+    content: ''; position: absolute; bottom: -1px; left: -1px;
+    width: 6px; height: 6px;
     background: #ffffff; border: 1.3px solid #000000;
   }
   .timeout-swatch { position: relative; display: inline-block; }
@@ -247,7 +275,7 @@
   }
   .date-range-label { font-size: 11px; color: var(--text-secondary); margin-top: 4px; font-variant-numeric: tabular-nums; }
   .ramp-legend { display: flex; align-items: center; gap: 8px; }
-  .ramp-bar { width: 90px; height: 12px; border-radius: 3px; background: linear-gradient(to right, var(--good-fast), var(--good-slow)); }
+  .ramp-bar { width: 90px; height: 12px; border-radius: 3px; background: linear-gradient(to right, var(--good-fast), var(--good-mid), var(--good-slow)); }
 
   /* Chart 3: grouped/stacked columns */
   .vbars { display: flex; align-items: flex-end; gap: 18px; height: 220px; padding: 0 6px; border-bottom: 1px solid var(--baseline); }
@@ -302,6 +330,12 @@
   .scatter-axis-label { font-size: 11px; fill: var(--text-muted); }
   .scatter-point-label { font-size: 10px; fill: var(--text-secondary); }
   .scatter-point { stroke: var(--surface-1); stroke-width: 2; cursor: default; }
+  /* Tries-discriminative's tied second point: a small hollow diamond in a fixed accent
+     color (not the pass/fail-split color the primary dot uses, which wouldn't mean
+     anything for a tries-spread metric) plus a thin connector down to its primary dot,
+     so the two read as "one exercise, two measurements" rather than as unrelated marks. */
+  .tries-disc-link { stroke: var(--seq-purple); stroke-width: 1.3; stroke-dasharray: 2 2; opacity: 0.7; }
+  .tries-disc-point { fill: var(--surface-1); stroke: var(--seq-purple); stroke-width: 2; cursor: default; }
   .scatter-quadrant-label { font-size: 10px; fill: var(--text-muted); font-style: italic; }
 
   table.useful { width: 100%; border-collapse: collapse; font-size: 12px; }
@@ -319,6 +353,7 @@
 
   /* Token-generated strip plot */
   .token-dot { fill: var(--seq-blue); opacity: 0.28; cursor: default; }
+  .token-dot.alt { fill: var(--seq-purple); }
   .token-avg-dot { fill: var(--seq-blue); stroke-width: 3; cursor: default; }
   .token-avg-line { stroke: var(--seq-blue); stroke-width: 2; fill: none; opacity: 0.55; }
   .token-x-label { font-size: 10px; fill: var(--text-secondary); }
@@ -326,6 +361,7 @@
   circle.token-dot.token-dot-active { opacity: 1; stroke: var(--surface-1); stroke-width: 1.5; }
   circle.token-dot.token-dot-dim { opacity: 0.06; }
   .token-avg-dot.token-avg-dim { opacity: 0.35; }
+  .hover-guide { stroke: var(--text-secondary); stroke-width: 1.25; stroke-dasharray: 5 4; opacity: 0; pointer-events: none; transition: opacity 0.1s; }
   .token-trace-line { stroke: var(--seq-blue); stroke-width: 1.5; stroke-dasharray: 3 3; fill: none; opacity: 0; pointer-events: none; transition: opacity 0.1s; }
   .token-baseline-line { stroke: var(--text-muted); stroke-width: 1; stroke-dasharray: 4 3; opacity: 0.6; }
 
@@ -353,6 +389,14 @@
   }
   .tt.show { opacity: 1; }
   .tt-rule { border: none; border-top: 1px solid var(--border); margin: 5px 0; }
+  .tt:has(table) { max-width: 480px; }
+  .tt table td.tt-cmd { max-width: 140px; overflow: hidden; text-overflow: ellipsis; text-align: left; }
+  .tt table { border-collapse: collapse; font-size: 11px; margin-top: 2px; }
+  .tt table th, .tt table td { padding: 1px 6px 1px 0; text-align: right; white-space: nowrap; }
+  .tt table th:first-child, .tt table td:first-child { text-align: left; padding-left: 0; }
+  .tt table th { color: var(--text-muted); font-weight: 500; }
+  .tt table td.fail-cell { color: var(--status-critical); }
+  .tt table tr.superseded { opacity: 0.45; text-decoration: line-through; }
 </style>
 </head>
 <body>
@@ -382,14 +426,14 @@
       </div>
       <div class="filter-search-row">
         <input type="text" id="modelSearchInput" class="filter-search" placeholder="Search models…">
-        <input type="number" id="modelMinExercises" class="filter-search filter-num" min="0" placeholder="Min exercises" title="Only show models tested on at least this many distinct exercises">
+        <input type="number" id="modelMinExercises" class="filter-search filter-num" min="0" placeholder="Min exercises" title="Only show models tested on at least this many of the currently selected exercises">
       </div>
       <div class="filter-list" id="modelFilterList"></div>
     </div>
     <div class="filter-section">
       <div class="filter-section-head">
         <span>Exercises <span class="filter-count" id="exerciseFilterCount"></span></span>
-        <span><button class="filter-mini-btn" id="exercisesDefaultBtn" type="button" title="Reset to the curated default selection, ignoring search/min-runs">Default</button><button class="filter-mini-btn" id="exercisesAllBtn" type="button" title="Check every exercise currently shown below (respects search/min-runs)">All shown</button><button class="filter-mini-btn" id="exercisesNoneBtn" type="button" title="Uncheck every exercise currently shown below (respects search/min-runs)">None shown</button><button class="filter-mini-btn" id="exercisesOnlyBtn" type="button" title="Check the exercises shown below and uncheck all others (hidden by search/min-runs)">Only shown</button></span>
+        <span><button class="filter-mini-btn" id="exercisesDefaultBtn" type="button" title="Reset to the curated default selection, ignoring search/min-runs">Default</button><button class="filter-mini-btn" id="exercisesAllBtn" type="button" title="Check every exercise currently shown below (respects search/min-runs)">All shown</button><button class="filter-mini-btn" id="exercisesNoneBtn" type="button" title="Uncheck every exercise currently shown below (respects search/min-runs)">None shown</button><button class="filter-mini-btn" id="exercisesCommonBtn" type="button" title="Select exactly the exercises every currently selected model has run (ignores search/min filters)">Common</button><button class="filter-mini-btn" id="exercisesOnlyBtn" type="button" title="Check the exercises shown below and uncheck all others (hidden by search/min-runs)">Only shown</button></span>
       </div>
       <div class="filter-search-row">
         <input type="text" id="exerciseSearchInput" class="filter-search" placeholder="Search exercises…">
@@ -401,8 +445,17 @@
         </select>
       </div>
       <div class="filter-search-row">
+        <select id="testListSelect" class="filter-sort" style="flex:1;min-width:0" title="Test list files from this folder"></select>
+      </div>
+      <div class="filter-search-row">
+        <button class="filter-mini-btn" id="testListOnlyBtn" type="button" title="Select exactly this list's tests (unchecks everything else)">Only these</button>
+        <button class="filter-mini-btn" id="testListAddBtn" type="button" title="Check this list's tests, keeping the current selection">Add</button>
+        <button class="filter-mini-btn" id="testListRemoveBtn" type="button" title="Uncheck this list's tests">Remove</button>
+      </div>
+      <div class="filter-search-row">
         <input type="number" id="exerciseMinRuns" class="filter-search filter-num" min="0" placeholder="Min models" title="Only show exercises tested by at least this many of the currently selected models (repeat runs by one model count once)">
       </div>
+      <div id="commonNote" style="font-size:11px;color:var(--text-muted);margin:0 0 6px"></div>
       <div class="filter-list" id="exerciseFilterList"></div>
     </div>
     <div class="filter-section">
@@ -482,7 +535,7 @@
 
   <div class="card">
     <h2>Pass / fail by task × model</h2>
-    <p class="desc">Rows ranked top-to-bottom by task quality (discriminative power, rewarded; cost and inconsistency, penalized — same composite as the "quality" column below). Columns ranked left-to-right by the option below (default: average tokens generated, cheapest model first). Green = passed (majority of runs, for tasks re-run more than once), shaded by how many tries it took on average — dark green means it passed fast, pale green means it barely scraped by. Red = failed. A cell that's been re-run and landed some of each way — neither a clean pass nor a clean fail — gets a diagonal hatch so it doesn't read as identical to a clean result at a glance; the pass/total number underneath (shown whenever a task was attempted more than once) is the exact split. A small dot in the corner flags a cell with at least one run that hit the harness's max-duration limit rather than failing on its own — hover for exactly which run(s) and how many of the cell's failures were timeouts; a task with a high timeout share among its failures may just need a longer duration budget rather than reflecting real model inconsistency (see <b>Timeout rate</b> in the usefulness table below).</p>
+    <p class="desc">Rows ranked top-to-bottom by task quality (discriminative power, rewarded; cost and inconsistency, penalized — same composite as the "quality" column below). Columns ranked left-to-right by the option below (default: average tokens generated, cheapest model first). Green = passed (majority of runs, for tasks re-run more than once), shaded by how many tries it took on average — dark green means it passed fast, pale green means it barely scraped by. Red = failed. A cell that's been re-run and landed some of each way — neither a clean pass nor a clean fail — gets a diagonal hatch so it doesn't read as identical to a clean result at a glance; the pass/total number underneath (shown whenever a task was attempted more than once) is the exact split. A small dot in the corner flags a cell with at least one run that hit the harness's max-duration limit rather than failing on its own — hover for exactly which run(s) and how many of the cell's failures were timeouts; a small square in the opposite (bottom-left) corner flags a cell with at least one run that exhausted its context window (a run can do this and still pass); a task with a high timeout share among its failures may just need a longer duration budget rather than reflecting real model inconsistency (see <b>Timeout rate</b> in the usefulness table below).</p>
     <div class="detail-controls">
       <label for="matrixSortBy" style="font-size:12px;color:var(--text-secondary)">Sort columns by</label>
       <select id="matrixSortBy">
@@ -490,24 +543,33 @@
         <option value="alpha">Alphabetical</option>
         <option value="projected">Projected capability</option>
       </select>
+      <label for="matrixColorBy" style="font-size:12px;color:var(--text-secondary);margin-left:16px">Color passes by</label>
+      <select id="matrixColorBy">
+        <option value="tries-legacy">Tries to pass (fixed 1 → 6)</option>
+        <option value="tries">Tries taken (chart scale)</option>
+        <option value="duration">Duration</option>
+        <option value="tokens">Tokens</option>
+      </select>
     </div>
     <div class="heatmap-wrap"><div id="chart2"></div></div>
     <div class="legend">
-      <div class="legend-item ramp-legend"><span class="ramp-bar"></span>Pass, 1 → 6 tries</div>
+      <div class="legend-item ramp-legend"><span class="ramp-bar"></span><span id="rampLabel">Pass, 1 → 6 tries</span></div>
       <div class="legend-item"><span class="swatch" style="background:var(--status-critical)"></span>Fail</div>
       <div class="legend-item"><span class="swatch mixed-swatch" style="background:var(--text-muted)"></span>Mixed (some of each, on repeat runs)</div>
       <div class="legend-item"><span class="swatch timeout-swatch" style="background:var(--status-critical)"></span>Includes a run that timed out (hit the harness's max duration, didn't fail on its own)</div>
+      <div class="legend-item"><span class="swatch ctx-swatch" style="background:var(--status-critical)"></span>Includes a run that exhausted its context window</div>
     </div>
   </div>
 
   <div class="card">
     <h2>Exercise usefulness — is this task worth keeping?</h2>
-    <p class="desc">Each of the <span id="shortlistN4">15</span> currently selected tasks with surviving data, plotted by cost (average wall-clock time, all models) against how much it splits the model field (0 = every model landed the same way, pass or fail; 1 = an even 50/50 split — the most information a task can give). A task voided entirely (e.g. by a harness bug) is left off rather than shown as a false 0/0. Bubble size is attempt count; color is which way the split leans. Cheap + high-split (top-left) is the best-value task; expensive + low-split (bottom-right) is the prime candidate to cut. The table's <b>Quality</b> column folds discriminative power, cost, and flakiness into one number (higher = better) — it's what orders the heatmap's rows above. <b>Score weight</b> is a related but distinct number — discriminative power &times; reliability, cost excluded — it's how much this task counts toward the "Capability score by model" chart above. <b>Flakiness</b> is shrunk toward the typical (usually low) flakiness across every other exercise, weighted by how many models actually re-ran this one &mdash; a task re-run by exactly one model that split 1/2 isn't treated as confidently "maximally flaky" the way one re-run by seven models with a consistent mixed result is. <b>Timeout rate</b> is what fraction of this task's failures were the harness bailing on its max-duration limit rather than the model actually failing on its own (count in parentheses) &mdash; unlike Flakiness, this isn't folded into Quality or Score weight, since a model that reliably always times out on a task is consistent, not flaky; a high rate here is a hint the duration budget may be too tight for this specific task, worth checking before reading too much into its other numbers.</p>
+    <p class="desc">Each of the <span id="shortlistN4">15</span> currently selected tasks with surviving data, plotted by cost (average wall-clock time, all models) against how much it splits the model field (0 = every model landed the same way, pass or fail; 1 = an even 50/50 split — the most information a task can give). A task voided entirely (e.g. by a harness bug) is left off rather than shown as a false 0/0. Bubble size is attempt count; color is which way the split leans. Cheap + high-split (top-left) is the best-value task; expensive + low-split (bottom-right) is the prime candidate to cut. The table's <b>Quality</b> column folds discriminative power, cost, and flakiness into one number (higher = better) — it's what orders the heatmap's rows above. <b>Score weight</b> is a related but distinct number — discriminative power &times; reliability, cost excluded — it's how much this task counts toward the "Capability score by model" chart above. <b>Flakiness</b> is shrunk toward the typical (usually low) flakiness across every other exercise, weighted by how many models actually re-ran this one &mdash; a task re-run by exactly one model that split 1/2 isn't treated as confidently "maximally flaky" the way one re-run by seven models with a consistent mixed result is. <b>Timeout rate</b> is what fraction of this task's failures were the harness bailing on its max-duration limit rather than the model actually failing on its own (count in parentheses) &mdash; unlike Flakiness, this isn't folded into Quality or Score weight, since a model that reliably always times out on a task is consistent, not flaky; a high rate here is a hint the duration budget may be too tight for this specific task, worth checking before reading too much into its other numbers. The small <b>&#9670; diamond</b> tied to each dot by a dashed line is a second, independent split: <b>tries-discriminative</b> — not whether models pass or fail, but how much their average tries-to-pass on this task actually spread out (0 = everyone needed about the same tries even if some failed, 1 = a wide spread from fast to slow). A task can split cleanly on pass/fail (high discriminative) while everyone who passes takes about the same tries (low tries-discriminative), or the reverse — everyone eventually passes, but how long it takes them varies a lot. It's omitted for a task fewer than 2 models have passed yet, since there's nothing to compare.</p>
     <div class="scatter-wrap"><div id="scatterChart"></div></div>
     <div class="legend">
       <div class="legend-item"><span class="swatch" style="background:var(--status-critical)"></span>Mostly fails</div>
       <div class="legend-item"><span class="swatch" style="background:var(--text-muted)"></span>Split evenly</div>
       <div class="legend-item"><span class="swatch" style="background:var(--status-good)"></span>Mostly passes</div>
+      <div class="legend-item"><svg width="14" height="14"><path d="M7 2L12 7L7 12L2 7Z" fill="var(--surface-1)" stroke="var(--seq-purple)" stroke-width="2"/></svg>Tries-discriminative (tied to its exercise's dot, dashed line)</div>
     </div>
     <details class="tbl" open>
       <summary>Per-exercise detail — click a column to sort</summary>
@@ -566,7 +628,8 @@ const tt = document.getElementById('tooltip');
 
 // Quant identity, consistent across every chart. Colors are CSS vars (theme-aware);
 // quant name always rides along in the tooltip/legend so color is never the only signal.
-const QUANT_VAR = { 'IQ3_XXS': '--quant-iq3xxs', 'IQ4_XS': '--quant-iq4xs', 'Q4_K_XL': '--quant-q4kxl' };
+const QUANT_VAR = { 'IQ3_XXS': '--quant-iq3xxs', 'IQ4_XS': '--quant-iq4xs', 'Q4_K_XL': '--quant-q4kxl',
+  'IQ3_S': '--quant-iq3s', 'IQ1_M': '--quant-iq1m', 'TQ2_0': '--quant-tq20' };
 function quantOf(modelLabel) { return data.model_quant[modelLabel] || 'other'; }
 function quantColorVar(modelLabel) { return `var(${QUANT_VAR[quantOf(modelLabel)] || '--quant-other'})`; }
 function quantDotHtml(modelLabel) {
@@ -603,7 +666,7 @@ const FILTER_STORAGE_KEY = 'eval-viz-filters-v2';
 // Sort dropdowns and min-count boxes persist alongside the filters (same key, `ui`
 // sub-object). Read/written by element id at call time so this block can sit above the
 // code that declares those elements' consts.
-const PERSISTED_UI_IDS = ['exerciseSortBy', 'exerciseMinRuns', 'modelMinExercises', 'speedSortBy', 'tokensSortBy', 'matrixSortBy'];
+const PERSISTED_UI_IDS = ['exerciseSortBy', 'exerciseMinRuns', 'modelMinExercises', 'speedSortBy', 'tokensSortBy', 'matrixSortBy', 'matrixColorBy'];
 function loadFiltersFromStorage() {
   let saved;
   try {
@@ -627,25 +690,41 @@ function loadFiltersFromStorage() {
 }
 function saveFiltersToStorage() {
   try {
-    const isAllTime = dateFrom <= minTs && dateTo >= maxTs;
     const defaultSet = new Set(data.default_exercises);
     localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify({
       deselectedModels: data.matrix_models.filter(m => !activeModels.has(m)),
       addedExercises: exerciseLabels.filter(ex => !defaultSet.has(ex) && activeExercises.has(ex)),
       removedExercises: exerciseLabels.filter(ex => defaultSet.has(ex) && !activeExercises.has(ex)),
-      dateFrom: isAllTime ? null : dateFrom,
-      dateTo: isAllTime ? null : dateTo,
+      // Each end is stored as null while it sits at its bound, independently: a
+      // saved timestamp would pin the range to the data as it was at save time, so a
+      // window ending at "now" would stop there and hide every newer result on reload.
+      dateFrom: dateFrom <= minTs ? null : dateFrom,
+      dateTo: dateTo >= maxTs ? null : dateTo,
       ui: Object.fromEntries(PERSISTED_UI_IDS.map(id => [id, document.getElementById(id).value])),
     }));
   } catch (e) { /* private browsing / storage disabled — filters just won't persist */ }
 }
 loadFiltersFromStorage();
 
+// Keep only the latest item per key (ISO timestamps sort lexically). The generator
+// flags globally-superseded runs, but "latest run for this seed" depends on the date
+// window — a run that's superseded overall can be the newest one inside a narrower
+// window — so dedupe is redone here after the date filter, not baked in.
+function latestPerKey(items, keyOf) {
+  const latest = new Map();
+  items.forEach(it => {
+    const k = keyOf(it);
+    if (!latest.has(k) || it.timestamp >= latest.get(k).timestamp) latest.set(k, it);
+  });
+  return latest;
+}
 function filteredCostPoints() {
-  return data.cost_spread.points.filter(p => {
+  const inWindow = data.cost_spread.points.filter(p => {
     const t = Date.parse(p.timestamp);
     return activeModels.has(p.model) && activeExercises.has(p.exercise) && t >= dateFrom && t <= dateTo;
   });
+  const latest = new Set(latestPerKey(inWindow, p => `${p.model}|${p.exercise}|${p.seed}`).values());
+  return inWindow.filter(p => latest.has(p));
 }
 
 // Evidence-weighted blend of an observed rate toward a prior belief — n real
@@ -663,6 +742,10 @@ const MODEL_PIN_PRIOR_STRENGTH = 4;
 // MODEL_PIN_PRIOR_STRENGTH because "this model is systematically better/worse than
 // typical" needs evidence across several distinct pins, not just repeats of one.
 const BIAS_PRIOR_STRENGTH = 6;
+// Seed consistency: see deriveChart1. Strength = how many "seeds' worth" of the global
+// consistency figure a model's own multi-seed evidence has to outweigh.
+const CONSISTENCY_PRIOR_STRENGTH = 4;
+const TRIES_SCORE_PRIOR_STRENGTH = 3;
 
 // Capability score, not a raw pass rate — see the card's own description for why.
 // Exercise weight/discriminative/flakiness/cross-model-average come from the static
@@ -676,6 +759,7 @@ function deriveChart1(costPts) {
   const activePins = data.usefulness.exercises.filter(e => activeExercises.has(e.label));
   const weightByPin = new Map();
   const imputeByPin = new Map();
+  const effPriorByPin = new Map(activePins.map(e => [e.label, e.eff_across_models]));
   activePins.forEach(e => {
     weightByPin.set(e.label, e.score_weight);
     imputeByPin.set(e.label, e.pass_rate_across_models);
@@ -691,21 +775,53 @@ function deriveChart1(costPts) {
     pinMap.get(p.exercise).push(p);
   });
 
+  // Seed consistency. The eval stops re-running a test once a seed passes, so a cell
+  // with k>=1 passes and n seeds run is "seeds passed / seeds run" with the remaining
+  // seeds UNKNOWN, not failed. How much to trust that a single pass generalizes to the
+  // unrun seeds is a property of the model: among its multi-seed cells with at least
+  // one pass, the pooled share of seeds that passed (all 2/2 -> 1.0, a lot of 1/3 ->
+  // ~0.33), shrunk toward the same statistic across every model. Unrun seeds up to
+  // the largest seed count seen anywhere (seedSlots) are then filled in as passing with
+  // that probability, so a 1/1 is worth as much as a 3/3 for a perfectly consistent
+  // model and much less for one that mostly needs several seeds.
+  let seedSlots = 1;
+  const seedSums = new Map();
+  let globalK = 0, globalN = 0;
+  byModelPin.forEach((pinMap, model) => {
+    let sk = 0, sn = 0;
+    pinMap.forEach(rs => {
+      seedSlots = Math.max(seedSlots, rs.length);
+      const k = rs.filter(r => r.pass).length;
+      if (k >= 1 && rs.length >= 2) { sk += k; sn += rs.length; }
+    });
+    seedSums.set(model, [sk, sn]);
+    globalK += sk; globalN += sn;
+  });
+  const globalConsistency = globalN ? globalK / globalN : 1;
+
   const out = [];
   byModelPin.forEach((pinMap, model) => {
+    const [ck, cn] = seedSums.get(model);
+    const consistency = cn ? shrinkTowardPrior(ck / cn, cn, globalConsistency, CONSISTENCY_PRIOR_STRENGTH) : globalConsistency;
     // Pass 1: per-tested-pin estimate, plus this model's own bias vs the pool on the
     // pins it's actually been tested on.
     const testedEst = new Map();
-    let tested = 0, exercisesPassed = 0, exercisesFailed = 0;
+    let tested = 0, exercisesPassed = 0, exercisesFailed = 0, exercisesMixed = 0;
     let biasNum = 0, biasWeight = 0;
     weightByPin.forEach((w, label) => {
       const rs = pinMap.get(label);
       if (!rs || !rs.length) return;
       tested++;
       const k = rs.filter(r => r.pass).length, n = rs.length;
-      const est = shrinkTowardPrior(k / n, n, imputeByPin.get(label), MODEL_PIN_PRIOR_STRENGTH);
+      // Only cells with a pass have unknown (unrun) seeds to fill in; an all-fail cell
+      // keeps its real seeds — the eval keeps retrying failures, so it isn't censored.
+      const kEff = k >= 1 ? k + consistency * (seedSlots - n) : k;
+      const nEff = k >= 1 ? seedSlots : n;
+      const est = shrinkTowardPrior(kEff / nEff, nEff, imputeByPin.get(label), MODEL_PIN_PRIOR_STRENGTH);
       testedEst.set(label, est);
-      if (k / n >= 0.5) exercisesPassed++; else exercisesFailed++;
+      // Clean pass = every seed passed, clean fail = none did; anything between is Mixed
+      // (seed-dependent), not lumped into Failed by a majority vote.
+      if (k === n) exercisesPassed++; else if (k === 0) exercisesFailed++; else exercisesMixed++;
       biasNum += w * (est - imputeByPin.get(label));
       biasWeight += w;
     });
@@ -715,6 +831,18 @@ function deriveChart1(costPts) {
     // Pass 2: assemble floor / ceiling / expected / projected across every pin.
     let numExpected = 0, numWorst = 0, numBest = 0, numProjected = 0;
     const passTries = [];
+    // Tries score: per tested pin, mean attempt efficiency shrunk toward that pin's
+    // cross-model mean, then a plain mean over tested pins (each pin's efficiency is
+    // already relative to its own difficulty, so no per-pin weighting), shrunk toward
+    // the global mean by how few pins back it up.
+    let effSum = 0, effPins = 0;
+    weightByPin.forEach((w, label) => {
+      const rs = (pinMap.get(label) || []).filter(r => r.eff !== null && r.eff !== undefined);
+      if (!rs.length) return;
+      effSum += shrinkTowardPrior(rs.reduce((a, r) => a + r.eff, 0) / rs.length, rs.length, effPriorByPin.get(label), MODEL_PIN_PRIOR_STRENGTH);
+      effPins++;
+    });
+    const triesScore = effPins ? shrinkTowardPrior(effSum / effPins, effPins, data.eff_global, TRIES_SCORE_PRIOR_STRENGTH) * 100 : null;
     weightByPin.forEach((w, label) => {
       if (testedEst.has(label)) {
         const est = testedEst.get(label);
@@ -729,12 +857,14 @@ function deriveChart1(costPts) {
     });
     out.push({
       label: model, tested, total_pins: weightByPin.size,
-      exercises_passed: exercisesPassed, exercises_failed: exercisesFailed,
+      exercises_passed: exercisesPassed, exercises_failed: exercisesFailed, exercises_mixed: exercisesMixed,
       projected_pct: fullWeight ? numProjected / fullWeight * 100 : 0,
       floor_pct: fullWeight ? numWorst / fullWeight * 100 : 0,
       expected_pct: fullWeight ? numExpected / fullWeight * 100 : 0,
       ceiling_pct: fullWeight ? numBest / fullWeight * 100 : 0,
       avg_tries_on_pass: passTries.length ? passTries.reduce((a, b) => a + b, 0) / passTries.length : null,
+      tries_score: triesScore,
+      consistency, consistency_n: cn,
     });
   });
   out.sort((a, b) => (b.projected_pct - a.projected_pct) || ((a.avg_tries_on_pass ?? 999) - (b.avg_tries_on_pass ?? 999)));
@@ -835,7 +965,7 @@ c1.parentElement.appendChild(t1);
 
 function renderChart1(chart1Data) {
   c1.innerHTML = `<div class="hbar-header hbar-grid-cols">
-    <div></div><div></div><div>Proven</div><div>Max</div><div>Failed</div><div>Tested</div>
+    <div></div><div></div><div>Proven</div><div>Max</div><div>Failed</div><div title="Passed on some seeds, failed on others">Mixed</div><div>Tested</div><div title="Tries efficiency vs. other models on the same tasks; 75 = typical">Tries</div>
   </div>`;
   chart1Data.forEach(d => {
     const row = document.createElement('div');
@@ -854,26 +984,30 @@ function renderChart1(chart1Data) {
       <div class="hbar-stat">${d.floor_pct.toFixed(1)}%</div>
       <div class="hbar-stat">${d.ceiling_pct.toFixed(1)}%</div>
       <div class="hbar-stat${d.exercises_failed > 0 ? ' fail-stat' : ''}">${d.exercises_failed}</div>
+      <div class="hbar-stat">${d.exercises_mixed}</div>
       <div class="hbar-stat">${d.tested}/${d.total_pins}</div>
+      <div class="hbar-stat">${d.tries_score !== null ? d.tries_score.toFixed(0) : '—'}</div>
     `;
     const fill = row.querySelector('.hbar-fill');
-    const triesLine = d.avg_tries_on_pass !== null ? `<br>avg ${d.avg_tries_on_pass.toFixed(1)} tries to pass` : '';
+    const triesLine = (d.avg_tries_on_pass !== null ? `<br>avg ${d.avg_tries_on_pass.toFixed(1)} tries to pass` : '') +
+      (d.tries_score !== null ? `<br>Tries score ${d.tries_score.toFixed(0)}/100 (75 = as many tries as the typical model on the same tasks; higher = fewer, failures score under 35)` : '');
     let coverageLine;
     if (d.tested >= d.total_pins) {
-      coverageLine = `<br>${d.exercises_passed}/${d.total_pins} tasks passed, ${d.exercises_failed} failed (full coverage — this is the real, fully-known score)`;
+      coverageLine = `<br>${d.exercises_passed}/${d.total_pins} tasks passed, ${d.exercises_mixed} mixed, ${d.exercises_failed} failed (full coverage — this is the real, fully-known score)`;
     } else {
-      coverageLine = `<br>${d.tested}/${d.total_pins} tasks tested (${d.exercises_passed} passed, ${d.exercises_failed} failed) &middot; ` +
+      coverageLine = `<br>${d.tested}/${d.total_pins} tasks tested (${d.exercises_passed} passed, ${d.exercises_mixed} mixed, ${d.exercises_failed} failed) &middot; ` +
         `proven floor ${d.floor_pct.toFixed(1)}% (untested assumed to fail) to ceiling ${d.ceiling_pct.toFixed(1)}% (untested assumed to pass) &middot; ` +
         `plain neutral guess (pool average, ignoring this model's own track record) would be ${d.expected_pct.toFixed(1)}%`;
     }
-    fill.addEventListener('mousemove', e => showTip(e, `<b>${d.label}</b><br>Projected: ${d.projected_pct.toFixed(1)}% (ranked by this)${coverageLine}${triesLine}`));
+    const consistencyLine = `<br>Seed consistency ${(d.consistency * 100).toFixed(0)}% (${d.consistency_n ? `from ${d.consistency_n} seeds across its multi-seed passes` : 'no multi-seed passes yet — using the all-model figure'}); a pass on fewer seeds than the max is filled in at this rate`;
+    fill.addEventListener('mousemove', e => showTip(e, `<b>${d.label}</b><br>Projected: ${d.projected_pct.toFixed(1)}% (ranked by this)${coverageLine}${triesLine}${consistencyLine}`));
     fill.addEventListener('mouseleave', hideTip);
     c1.appendChild(row);
   });
 
   t1.innerHTML = `<summary>View as table</summary><table>
-    <thead><tr><th>Model</th><th>Projected (ranked by)</th><th>Proven floor</th><th>Neutral guess</th><th>Ceiling</th><th>Tested</th><th>Passed</th><th>Failed</th><th>Avg tries to pass</th></tr></thead>
-    <tbody>${chart1Data.map(d => `<tr><td>${d.label}</td><td>${d.projected_pct.toFixed(1)}%</td><td>${d.floor_pct.toFixed(1)}%</td><td>${d.expected_pct.toFixed(1)}%</td><td>${d.ceiling_pct.toFixed(1)}%</td><td>${d.tested}/${d.total_pins}</td><td>${d.exercises_passed}</td><td>${d.exercises_failed}</td><td>${d.avg_tries_on_pass !== null ? d.avg_tries_on_pass.toFixed(2) : '—'}</td></tr>`).join('')}</tbody>
+    <thead><tr><th>Model</th><th>Projected (ranked by)</th><th>Proven floor</th><th>Neutral guess</th><th>Ceiling</th><th>Tested</th><th>Passed</th><th>Mixed</th><th>Failed</th><th>Avg tries to pass</th><th>Tries score</th></tr></thead>
+    <tbody>${chart1Data.map(d => `<tr><td>${d.label}</td><td>${d.projected_pct.toFixed(1)}%</td><td>${d.floor_pct.toFixed(1)}%</td><td>${d.expected_pct.toFixed(1)}%</td><td>${d.ceiling_pct.toFixed(1)}%</td><td>${d.tested}/${d.total_pins}</td><td>${d.exercises_passed}</td><td>${d.exercises_mixed}</td><td>${d.exercises_failed}</td><td>${d.avg_tries_on_pass !== null ? d.avg_tries_on_pass.toFixed(2) : '—'}</td><td>${d.tries_score !== null ? d.tries_score.toFixed(1) : '—'}</td></tr>`).join('')}</tbody>
   </table>`;
 }
 
@@ -998,7 +1132,7 @@ function renderTokenScatter(container, points, countEl, mode, order) {
     m.pts.forEach((p, j) => {
       const x = cx + offsets[j];
       const y = yScale(p[valueKey]);
-      dotsSvg += `<circle class="token-dot" data-model="${m.model}" data-exercise="${p.exercise}" data-tokens="${p.tokens}" data-norm="${p.tokens_norm}" data-tries="${p.tries}" cx="${x}" cy="${y}" r="3.5"/>`;
+      dotsSvg += `<circle class="token-dot${i % 2 ? ' alt' : ''}" data-model="${m.model}" data-exercise="${p.exercise}" data-tokens="${p.tokens}" data-norm="${p.tokens_norm}" data-tries="${p.tries}" cx="${x}" cy="${y}" r="3.5"/>`;
     });
     const avgY = yScale(m.avg);
     avgPoints.push([cx, avgY]);
@@ -1015,6 +1149,7 @@ function renderTokenScatter(container, points, countEl, mode, order) {
   container.innerHTML = `<svg class="scatter-svg" viewBox="0 0 ${W} ${H}" width="100%" style="max-width:${W}px">${gridSvg}${lineSvg}<polyline class="token-trace-line" points=""/>${dotsSvg}${avgDotsSvg}${xLabelSvg}</svg>`;
 
   const traceLine = container.querySelector('.token-trace-line');
+  attachHoverGuides(container, 'circle.token-dot, circle.token-avg-dot', { y: { left: M.left, right: W - M.right } });
   function highlightExercise(exercise) {
     const matched = [];
     container.querySelectorAll('circle.token-dot').forEach(d => {
@@ -1053,6 +1188,34 @@ function renderTokenScatter(container, points, countEl, mode, order) {
   });
 
   return models.map(m => m.model);
+}
+
+// Faint dashed crosshair guides from a hovered data point to the axes. Pass only the
+// axes that are real quantitative scales: categorical axes (a list of models or
+// exercises) get no guide, since a line across them reads nothing off.
+function attachHoverGuides(container, selector, { x, y }) {
+  const svg = container.querySelector('svg');
+  if (!svg) return;
+  const vb = svg.viewBox.baseVal;
+  const mk = () => {
+    const l = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    l.setAttribute('class', 'hover-guide');
+    svg.appendChild(l);
+    return l;
+  };
+  const vLine = x ? mk() : null, hLine = y ? mk() : null;
+  svg.querySelectorAll(selector).forEach(el => {
+    el.addEventListener('mouseenter', () => {
+      const bb = el.getBBox();
+      const cx = bb.x + bb.width / 2, cy = bb.y + bb.height / 2;
+      if (vLine) { vLine.setAttribute('x1', cx); vLine.setAttribute('x2', cx); vLine.setAttribute('y1', x.top); vLine.setAttribute('y2', x.bottom); vLine.style.opacity = 0.85; }
+      if (hLine) { hLine.setAttribute('y1', cy); hLine.setAttribute('y2', cy); hLine.setAttribute('x1', y.left); hLine.setAttribute('x2', y.right); hLine.style.opacity = 0.85; }
+    });
+    el.addEventListener('mouseleave', () => {
+      if (vLine) vLine.style.opacity = 0;
+      if (hLine) hLine.style.opacity = 0;
+    });
+  });
 }
 
 // Sibling panel to renderTokenScatter: same beeswarm/average/trace-line/quant-dot
@@ -1146,7 +1309,7 @@ function renderModelStripPlotFixed(container, points, order, { valueKey, format,
     m.pts.forEach((p, j) => {
       const x = cx + offsets[j];
       const y = yScale(p[valueKey]) + yJitter[j];
-      dotsSvg += `<circle class="token-dot" data-model="${m.model}" data-exercise="${p.exercise}" data-value="${p[valueKey]}" data-tries="${p.tries}" cx="${x}" cy="${y}" r="3.5"/>`;
+      dotsSvg += `<circle class="token-dot${i % 2 ? ' alt' : ''}" data-model="${m.model}" data-exercise="${p.exercise}" data-value="${p[valueKey]}" data-tries="${p.tries}" cx="${x}" cy="${y}" r="3.5"/>`;
     });
     avgPoints.push([cx, yScale(m.avg)]);
     xLabelSvg += `<circle class="quant-dot-svg" cx="${cx}" cy="${H - M.bottom + 6}" r="4" fill="${quantColorVar(m.model)}"/>`;
@@ -1161,6 +1324,7 @@ function renderModelStripPlotFixed(container, points, order, { valueKey, format,
   container.innerHTML = `<svg class="scatter-svg" viewBox="0 0 ${W} ${H}" width="100%" style="max-width:${W}px">${gridSvg}${lineSvg}<polyline class="token-trace-line" points=""/>${dotsSvg}${avgDotsSvg}${xLabelSvg}</svg>`;
 
   const traceLine = container.querySelector('.token-trace-line');
+  attachHoverGuides(container, 'circle.token-dot, circle.token-avg-dot', { y: { left: M.left, right: W - M.right } });
   function highlightExercise(exercise) {
     const matched = [];
     container.querySelectorAll('circle.token-dot').forEach(d => {
@@ -1343,6 +1507,7 @@ function renderCostSpread(container, points, metric, order) {
   });
 
   container.innerHTML = `<svg class="scatter-svg" viewBox="0 0 ${W} ${H}" width="100%" style="max-width:${W}px">${gridSvg}${gapSvg}${dotsSvg}${xLabelSvg}</svg>`;
+  attachHoverGuides(container, 'circle.cost-dot, circle.cost-avg-dot', { y: { left: M.left, right: W - M.right } });
 
   container.querySelectorAll('circle.cost-dot').forEach(c => {
     c.addEventListener('mousemove', e => showTip(e,
@@ -1391,14 +1556,20 @@ function renderQualityScatter(chart1Data, perfOverall) {
   const innerW = W - M.left - M.right, innerH = H - M.top - M.bottom;
   const xMax = Math.max(...models.map(d => d.perf.avg_tokens_norm)) * 1.1;
   const xScale = v => M.left + (v / xMax) * innerW;
-  const yScale = v => M.top + (1 - v / 100) * innerH;
+  // Y axis cropped to the models' actual range (padded, snapped to a round tick step)
+  // instead of 0-100, so points that all sit in a narrow band spread out.
+  const yLo0 = Math.min(...models.map(d => d.projected)), yHi0 = Math.max(...models.map(d => d.projected));
+  const yPad = Math.max((yHi0 - yLo0) * 0.08, 1);
+  const yRange = (yHi0 - yLo0) + 2 * yPad;
+  const yStep = [1, 2, 5, 10, 20].find(st => yRange / st <= 7) ?? 20;
+  const yMin = Math.max(0, Math.floor((yLo0 - yPad) / yStep) * yStep);
+  const yMax = Math.min(100, Math.ceil((yHi0 + yPad) / yStep) * yStep);
+  const yScale = v => M.top + (1 - (v - yMin) / (yMax - yMin)) * innerH;
   const rMin = Math.min(...models.map(d => d.perf.n)), rMax = Math.max(...models.map(d => d.perf.n));
   const rScale = v => 5 + (rMax > rMin ? (Math.sqrt(v) - Math.sqrt(rMin)) / (Math.sqrt(rMax) - Math.sqrt(rMin)) : 0) * 10;
 
   let gridSvg = '';
-  const yTicks = 5;
-  for (let i = 0; i <= yTicks; i++) {
-    const v = (i / yTicks) * 100;
+  for (let v = yMin; v <= yMax + 1e-9; v += yStep) {
     const y = yScale(v);
     gridSvg += `<line class="scatter-gridline" x1="${M.left}" x2="${W - M.right}" y1="${y}" y2="${y}"/>`;
     gridSvg += `<text class="scatter-axis-label" x="${M.left - 8}" y="${y + 4}" text-anchor="end">${v.toFixed(0)}%</text>`;
@@ -1432,6 +1603,7 @@ function renderQualityScatter(chart1Data, perfOverall) {
 
   const el = document.getElementById('qualityChart');
   el.innerHTML = `<svg class="scatter-svg" viewBox="0 0 ${W} ${H}" width="100%" style="max-width:${W}px">${gridSvg}${pointsSvg}</svg>`;
+  attachHoverGuides(el, 'circle.scatter-point', { x: { top: M.top, bottom: H - M.bottom }, y: { left: M.left, right: W - M.right } });
   el.querySelectorAll('circle.scatter-point').forEach(c => {
     const d = models[+c.dataset.i];
     c.addEventListener('mousemove', e => showTip(e,
@@ -1452,24 +1624,58 @@ function relLuminance([r, g, b]) {
   return 0.2126 * rl + 0.7152 * gl + 0.0722 * bl;
 }
 const rootStyle = getComputedStyle(document.querySelector('.viz-root'));
-function triesFill(avgTries) {
+// Position (0..1) on the same scale type the matching strip chart above uses (duration is
+// log, tries/tokens linear), but spanning the 5th..95th percentile of the cell means
+// instead of min..max: a few outlier cells otherwise stretch the axis so everything else
+// piles up at one end (all yellow for duration, all green for tokens).
+function heatSpec(metric, means) {
+  if (!means.length) return null;
+  const v = [...means].sort((a, b) => a - b);
+  const q = f => v[Math.min(v.length - 1, Math.round((v.length - 1) * f))];
+  const log = metric === 'duration';
+  const lo = log ? Math.max(0.01, q(0.05)) : q(0.05), hi = Math.max(q(0.95), lo * 1.0001);
+  const pos = x => log
+    ? (Math.log10(Math.max(x, lo)) - Math.log10(lo)) / (Math.log10(hi) - Math.log10(lo))
+    : (x - lo) / (hi - lo);
+  const fmt = metric === 'duration' ? x => Math.round(x) + 's' : metric === 'tries' ? x => x.toFixed(1) : (tokenMode === 'raw' ? x => Math.round(x).toLocaleString() : x => x.toFixed(2) + '×');
+  return { lo, hi, pos: x => Math.max(0, Math.min(1, pos(x))), fmt, log };
+}
+function rampFill(t) {
   const goodFast = rootStyle.getPropertyValue('--good-fast').trim();
+  const goodMid = rootStyle.getPropertyValue('--good-mid').trim();
   const goodSlow = rootStyle.getPropertyValue('--good-slow').trim();
-  const t = Math.max(0, Math.min(1, (avgTries - 1) / 5));
-  const a = hexToRgb(goodFast), b = hexToRgb(goodSlow);
-  const rgb = a.map((v, i) => Math.round(v + (b[i] - v) * t));
+  // Three stops (green -> yellow -> orange) rather than two greens: a light green is
+  // hard to tell from a slightly lighter green, but hue shifts read at a glance.
+  const [a, b, u] = t < 0.5 ? [goodFast, goodMid, t / 0.5] : [goodMid, goodSlow, (t - 0.5) / 0.5];
+  const ca = hexToRgb(a), cb = hexToRgb(b);
+  const rgb = ca.map((v, i) => Math.round(v + (cb[i] - v) * u));
   const textColor = relLuminance(rgb) > 0.45 ? '#0b0b0b' : '#ffffff';
   return { bg: `rgb(${rgb.join(',')})`, text: textColor };
 }
 
 const c2 = document.getElementById('chart2');
 
-function renderHeatmap(matrixData, matrixModels) {
+function renderHeatmap(matrixData, matrixModels, perfPts) {
   c2.innerHTML = '';
   if (!matrixData.length || !matrixModels.length) {
     c2.innerHTML = '<p style="font-size:12px;color:var(--text-muted);">No tasks or models selected.</p>';
     return;
   }
+  const metric = matrixColorBy.value;
+  const legacy = metric === 'tries-legacy';
+  const key = { duration: 'duration', tries: 'tries_num', tokens: tokenMode === 'raw' ? 'tokens' : 'tokens_norm' }[metric];
+  const cellVals = new Map();
+  if (!legacy) perfPts.forEach(p => {
+    if (p[key] == null) return;
+    const k = `${p.model}|${p.exercise}`;
+    if (!cellVals.has(k)) cellVals.set(k, []);
+    cellVals.get(k).push(p[key]);
+  });
+  const cellMean = new Map([...cellVals].map(([k, vs]) => [k, vs.reduce((a, b) => a + b, 0) / vs.length]));
+  const spec = legacy ? null : heatSpec(metric, [...cellMean.values()]);
+  document.getElementById('rampLabel').textContent = legacy ? 'Pass, 1 → 6 tries'
+    : spec ? `Pass, ${{ tries: 'tries taken', duration: 'duration', tokens: tokenMode === 'raw' ? 'tokens' : 'tokens vs. exercise typical' }[metric]}, p5 ${spec.fmt(spec.lo)} → p95 ${spec.fmt(spec.hi)}${spec.log ? ' (log)' : ''}`
+    : 'Pass';
   const table = document.createElement('table');
   table.className = 'heatmap';
   // Column headers are vertical text (writing-mode: vertical-rl), so a label's
@@ -1489,17 +1695,22 @@ function renderHeatmap(matrixData, matrixModels) {
       const label = cell.total > 1 ? `${cell.pass}/${cell.total}` : '';
       let style = '';
       let cls = 'fail';
+      let val = null;
       if (cell.rate >= 0.5) {
         cls = 'pass';
-        const { bg, text } = triesFill(cell.avg_tries ?? 6);
-        style = `style="background-color:${bg};color:${text}"`;
+        val = legacy ? cell.avg_tries : (cellMean.get(`${matrixModels[i]}|${row.label}`) ?? null);
+        if (val != null) {
+          const { bg, text } = rampFill(legacy ? Math.max(0, Math.min(1, (val - 1) / 5)) : spec.pos(val));
+          style = `style="background-color:${bg};color:${text}"`;
+        }
       }
       // "Mixed" = repeat-tested with neither a clean pass nor a clean fail — visually
       // distinct from a same-colored clean result, not just distinguishable by the
       // small pass/total text label.
       if (cell.total > 1 && cell.pass > 0 && cell.pass < cell.total) cls += ' mixed';
       if (cell.timeouts > 0) cls += ' timed-out';
-      return `<td class="hm-cell ${cls}" ${style} data-ex="${row.label}" data-exercise="${row.exercise}" data-language="${row.language}" data-model="${matrixModels[i]}" data-pass="${cell.pass}" data-total="${cell.total}" data-tries="${cell.avg_tries ?? ''}" data-timeouts="${cell.timeouts}">${label}</td>`;
+      if (cell.ctx_runs > 0) cls += ' ctx-exhausted';
+      return `<td class="hm-cell ${cls}" ${style} data-ex="${row.label}" data-exercise="${row.exercise}" data-language="${row.language}" data-model="${matrixModels[i]}" data-pass="${cell.pass}" data-total="${cell.total}" data-tries="${cell.avg_tries ?? ''}" data-val="${val != null && spec ? spec.fmt(val) : ''}" data-timeouts="${cell.timeouts}" data-ctx="${cell.ctx_runs}">${label}</td>`;
     }).join('');
     return `<tr><th class="rowhead">${row.label}</th>${cells}</tr>`;
   }).join('') + '</tbody>';
@@ -1508,20 +1719,35 @@ function renderHeatmap(matrixData, matrixModels) {
 
   table.querySelectorAll('.hm-cell[data-ex]').forEach(td => {
     td.addEventListener('mousemove', e => {
-      const runs = data.detail.filter(d =>
+      const runs = windowDetail.filter(d =>
         d.model === td.dataset.model && d.exercise === td.dataset.exercise && d.language === td.dataset.language
       ).sort((a, b) => a.timestamp < b.timestamp ? -1 : 1);
-      const triesLine = td.dataset.tries ? ` &middot; avg ${Number(td.dataset.tries).toFixed(1)} tries to pass` : '';
+      const triesLine = (td.dataset.tries ? ` &middot; avg ${Number(td.dataset.tries).toFixed(1)} tries to pass` : '') + (td.dataset.val ? ` &middot; ${matrixColorBy.value}: ${td.dataset.val}` : '');
       const timeouts = +td.dataset.timeouts || 0;
       const failCount = +td.dataset.total - +td.dataset.pass;
       const timeoutLine = timeouts > 0
         ? ` &middot; ${timeouts} of ${failCount} fail${failCount === 1 ? '' : 's'} timed out`
         : '';
-      const runLines = runs.map(r =>
-        `${r.timestamp.slice(5, 16).replace('T', ' ')} — ${r.pass ? 'pass' : (r.bailed ? 'fail (timeout)' : 'fail')}, ${r.tries || '?'} tries, ${r.duration}s (${r.run_cmd})`
-      ).join('<br>');
-      showTip(e, `<b>${td.dataset.model}</b><br>${td.dataset.ex}: ${td.dataset.pass}/${td.dataset.total} passed${triesLine}${timeoutLine}` +
-        (runLines ? `<hr class="tt-rule">${runLines}` : ''));
+      const ctxRuns = +td.dataset.ctx || 0;
+      const ctxLine = ctxRuns > 0 ? ` &middot; context window exhausted in ${ctxRuns} run${ctxRuns === 1 ? '' : 's'}` : '';
+      // A table reads better than comma-joined text once a cell has more than a
+      // couple of repeat runs — each run is a row, each stat its own column.
+      const runRows = runs.map(r => `<tr${r.superseded ? ' class="superseded" title="Superseded by a later run on the same seed — not counted"' : ''}>
+        <td>${r.timestamp.slice(5, 16).replace('T', ' ')}</td>
+        <td class="${r.pass ? '' : 'fail-cell'}">${r.pass ? 'pass' : (r.bailed ? 'fail (timeout)' : 'fail')}</td>
+        <td>${r.tries || '?'}</td>
+        <td>${r.duration}s</td>
+        <td>${r.tokens ? r.tokens.toLocaleString() : '?'}</td>
+        <td>${r.seed || '?'}</td>
+        <td>${r.ctx_exhausted ? 'x' + r.ctx_exhausted : ''}</td>
+        <td class="tt-cmd" title="${r.run_cmd}">${r.run_cmd}</td>
+      </tr>`).join('');
+      const runTable = runs.length ? `<table>
+        <thead><tr><th>When</th><th>Result</th><th>Tries</th><th>Time</th><th>Tokens</th><th>Seed</th><th>Ctx</th><th>Run</th></tr></thead>
+        <tbody>${runRows}</tbody>
+      </table>` : '';
+      showTip(e, `<b>${td.dataset.model}</b><br>${td.dataset.ex}: ${td.dataset.pass}/${td.dataset.total} seeds passed${triesLine}${timeoutLine}${ctxLine}` +
+        (runTable ? `<hr class="tt-rule">${runTable}` : ''));
     });
     td.addEventListener('mouseleave', hideTip);
   });
@@ -1571,24 +1797,34 @@ function renderUsefulnessSection(ex) {
   gridSvg += `<line class="scatter-axis" x1="${M.left}" x2="${M.left}" y1="${M.top}" y2="${H - M.bottom}"/>`;
   gridSvg += `<line class="scatter-axis" x1="${M.left}" x2="${W - M.right}" y1="${H - M.bottom}" y2="${H - M.bottom}"/>`;
   gridSvg += `<text class="scatter-axis-label" x="${M.left + innerW / 2}" y="${H - 6}" text-anchor="middle">average duration per attempt (s), all models</text>`;
-  gridSvg += `<text class="scatter-axis-label" x="${-(M.top + innerH / 2)}" y="14" text-anchor="middle" transform="rotate(-90)">discriminative power (0 = all agree, 1 = 50/50 split)</text>`;
+  gridSvg += `<text class="scatter-axis-label" x="${-(M.top + innerH / 2)}" y="14" text-anchor="middle" transform="rotate(-90)">discriminative power (0 = all agree, 1 = 50/50 split) &middot; ◇ tries-spread (dashed link)</text>`;
 
   // sort by x so alternating label offsets reduce local collisions
   const sortedByX = ex.slice().sort((a, b) => a.avg_duration - b.avg_duration);
   const labelDy = {};
   sortedByX.forEach((d, i) => { labelDy[d.label] = i % 2 === 0 ? -12 : 20; });
 
-  let pointsSvg = '';
+  let pointsSvg = '', tdPointsSvg = '';
   ex.forEach(d => {
     const cx = xScale(d.avg_duration), cy = yScale(d.discriminative);
     const r = rScale(d.n_attempts);
     const fill = splitColor(d.pass_rate_across_models);
     pointsSvg += `<circle class="scatter-point" data-i="${ex.indexOf(d)}" cx="${cx}" cy="${cy}" r="${r}" fill="${fill}"/>`;
     pointsSvg += `<text class="scatter-point-label" x="${cx}" y="${cy + labelDy[d.label]}" text-anchor="middle">${d.exercise}</text>`;
+    // Tied second point: same x (same exercise), y = tries_discriminative instead of
+    // pass/fail discriminative. Only drawn when at least 2 models have a passing run on
+    // this exercise to compare tries against (see tries_discriminative's None case).
+    if (d.tries_discriminative !== null) {
+      const tdy = yScale(d.tries_discriminative);
+      tdPointsSvg += `<line class="tries-disc-link" x1="${cx}" x2="${cx}" y1="${cy}" y2="${tdy}"/>`;
+      const s = 5;
+      tdPointsSvg += `<path class="tries-disc-point" data-td-i="${ex.indexOf(d)}" d="M${cx} ${tdy - s}L${cx + s} ${tdy}L${cx} ${tdy + s}L${cx - s} ${tdy}Z"/>`;
+    }
   });
 
   const svgEl = document.getElementById('scatterChart');
-  svgEl.innerHTML = `<svg class="scatter-svg" viewBox="0 0 ${W} ${H}" width="100%" style="max-width:${W}px">${gridSvg}${pointsSvg}</svg>`;
+  svgEl.innerHTML = `<svg class="scatter-svg" viewBox="0 0 ${W} ${H}" width="100%" style="max-width:${W}px">${gridSvg}${tdPointsSvg}${pointsSvg}</svg>`;
+  attachHoverGuides(svgEl, 'circle.scatter-point, path.tries-disc-point', { x: { top: M.top, bottom: H - M.bottom }, y: { left: M.left, right: W - M.right } });
 
   svgEl.querySelectorAll('circle.scatter-point').forEach(c => {
     const d = ex[+c.dataset.i];
@@ -1599,6 +1835,16 @@ function renderUsefulnessSection(ex) {
       `avg ${d.avg_duration.toFixed(0)}s over ${d.n_attempts} attempts<br>` +
       (d.flakiness !== null ? `repeat-run flakiness ${d.flakiness.toFixed(2)} (${d.n_flaky_models} model${d.n_flaky_models === 1 ? '' : 's'} re-ran it)` : 'no repeat runs to judge consistency') +
       (d.timeout_rate !== null ? `<br>${(d.timeout_rate * 100).toFixed(0)}% of failures were timeouts (${d.timeout_fails})` : '')
+    ));
+    c.addEventListener('mouseleave', hideTip);
+  });
+
+  svgEl.querySelectorAll('path.tries-disc-point').forEach(c => {
+    const d = ex[+c.dataset.tdI];
+    c.addEventListener('mousemove', e => showTip(e,
+      `<b>${d.label}</b> — tries-spread<br>` +
+      `tries-discriminative ${d.tries_discriminative.toFixed(2)} (0 = every model takes about the same tries, 1 = wide spread)<br>` +
+      `based on ${d.n_tries_models} model${d.n_tries_models === 1 ? '' : 's'}' passing-tries averages`
     ));
     c.addEventListener('mouseleave', hideTip);
   });
@@ -1627,6 +1873,7 @@ function renderUsefulnessSection(ex) {
     { key: 'score_weight', label: 'Score weight' },
     { key: 'pass_rate_across_models', label: 'Pass rate' },
     { key: 'discriminative', label: 'Discriminative' },
+    { key: 'tries_discriminative', label: 'Tries-discriminative' },
     { key: 'avg_duration', label: 'Avg duration' },
     { key: 'flakiness', label: 'Flakiness' },
     { key: 'timeout_rate', label: 'Timeout rate' },
@@ -1656,6 +1903,7 @@ function renderUsefulnessSection(ex) {
       <td>${d.score_weight.toFixed(2)}</td>
       <td>${d.models_passed}/${d.n_models} (${(d.pass_rate_across_models * 100).toFixed(0)}%)</td>
       <td>${d.discriminative.toFixed(2)}</td>
+      <td>${d.tries_discriminative !== null ? d.tries_discriminative.toFixed(2) : '—'}</td>
       <td>${d.avg_duration.toFixed(0)}s</td>
       <td>${d.flakiness !== null ? d.flakiness.toFixed(2) : '—'}</td>
       <td>${d.timeout_rate !== null ? `${(d.timeout_rate * 100).toFixed(0)}% (${d.timeout_fails})` : '—'}</td>
@@ -1792,22 +2040,54 @@ document.getElementById('themeToggle').addEventListener('click', () => {
 // ---- floating model/exercise filter: panel + orchestration ----
 const matrixSortBy = document.getElementById('matrixSortBy');
 matrixSortBy.addEventListener('change', () => applyFilters());
+const matrixColorBy = document.getElementById('matrixColorBy');
+matrixColorBy.addEventListener('change', () => applyFilters());
 
-// Matrix cells are positionally aligned with data.matrix_models — reordering/filtering
-// columns means picking the corresponding index out of every row's cells array
-// (data.matrix_models.indexOf), not just reordering the header labels.
+// Runs for the matrix cells and hover tables, built from data.detail so the date window
+// applies: only runs inside it, latest-per-seed re-evaluated within it.
+let windowDetail = [];
+function buildWindowDetail() {
+  const inWindow = data.detail.filter(d => {
+    const t = Date.parse(d.timestamp);
+    return t >= dateFrom && t <= dateTo;
+  });
+  const latest = new Set(latestPerKey(inWindow, d => `${d.model}|${d.language}|${d.exercise}|${d.seed}`).values());
+  windowDetail = inWindow.map(d => ({ ...d, superseded: !latest.has(d) }));
+  const cells = new Map();
+  windowDetail.forEach(d => {
+    const k = `${d.model}|${d.exercise} (${d.language})`;
+    if (!cells.has(k)) cells.set(k, []);
+    cells.get(k).push(d);
+  });
+  return cells;
+}
+function matrixCell(runs) {
+  const live = (runs || []).filter(r => !r.superseded);
+  if (!live.length) return null;
+  const passTries = live.filter(r => r.pass && r.tries).map(r => +r.tries);
+  const npass = live.filter(r => r.pass).length;
+  return {
+    pass: npass, total: live.length, rate: npass / live.length,
+    avg_tries: passTries.length ? passTries.reduce((a, b) => a + b, 0) / passTries.length : null,
+    timeouts: live.filter(r => r.bailed).length,
+    ctx_runs: live.filter(r => r.ctx_exhausted > 0).length,
+  };
+}
 function deriveMatrixFiltered(chart1Data) {
+  const windowCells = buildWindowDetail();
+  // chart1Data only has models with data on the active exercises; a selected model
+  // with none is appended (blank column) rather than silently vanishing from the grid.
+  const scored = chart1Data.map(d => d.label).filter(m => activeModels.has(m));
   const modelOrder = matrixSortBy.value === 'projected'
-    ? chart1Data.map(d => d.label).filter(m => activeModels.has(m))
+    ? scored.concat(data.matrix_models.filter(m => activeModels.has(m) && !scored.includes(m)))
     : matrixSortBy.value === 'alpha'
       ? data.matrix_models.filter(m => activeModels.has(m)).sort((a, b) => a.localeCompare(b))
       : data.matrix_models.filter(m => activeModels.has(m));
-  const keepIdx = modelOrder.map(m => data.matrix_models.indexOf(m));
   return {
     matrixModelsFiltered: modelOrder,
     matrixFiltered: data.matrix
       .filter(row => activeExercises.has(row.label))
-      .map(row => ({ ...row, cells: keepIdx.map(i => row.cells[i]) })),
+      .map(row => ({ ...row, cells: modelOrder.map(m => matrixCell(windowCells.get(`${m}|${row.label}`))) })),
   };
 }
 
@@ -1833,10 +2113,11 @@ function applyFilters() {
   redrawTokens(perfPoints, chart1Data);
   renderCostSpreadSection(cost);
   renderQualityScatter(chart1Data, perfOverall);
-  renderHeatmap(matrixFiltered, matrixModelsFiltered);
+  renderHeatmap(matrixFiltered, matrixModelsFiltered, perfPoints);
   renderUsefulnessSection(usefulnessFiltered);
   renderDetailTable(detailFiltered);
   updateFilterFab();
+  renderModelList();
 }
 
 const filterFab = document.getElementById('filterFab');
@@ -1869,17 +2150,24 @@ function renderModelCount() {
   if (modelFilterCountEl) modelFilterCountEl.textContent = `(${activeModels.size}/${data.matrix_models.length})`;
 }
 const modelMinExercises = document.getElementById('modelMinExercises');
-// Distinct exercises each model has any attempt on (matrix cells are positionally
-// aligned with matrix_models); static, so the threshold ignores the other filters.
-const exercisesTestedByModel = new Map(data.matrix_models.map((m, i) =>
-  [m, data.matrix.filter(r => r.cells[i] && r.cells[i].total > 0).length]));
+// Distinct exercises each model has any attempt on, among the currently SELECTED
+// exercises (matrix cells are positionally aligned with matrix_models). Recomputed by
+// renderModelList, which applyFilters calls, so it tracks the exercise selection.
+let exercisesTestedByModel = new Map();
+function recomputeExercisesTested() {
+  const rows = data.matrix.filter(r => activeExercises.has(r.label));
+  exercisesTestedByModel = new Map(data.matrix_models.map((m, i) =>
+    [m, rows.filter(r => r.cells[i] && r.cells[i].total > 0).length]));
+}
 function shownModels() {
+  recomputeExercisesTested();
   const query = modelSearchInput.value.trim().toLowerCase();
   const minEx = modelMinExercises.value === '' ? 0 : Math.max(0, +modelMinExercises.value);
   return data.matrix_models.filter(m =>
     (!query || m.toLowerCase().includes(query)) && exercisesTestedByModel.get(m) >= minEx);
 }
 function renderModelList() {
+  recomputeExercisesTested();
   const shown = shownModels();
   modelListEl.innerHTML = shown.length
     ? shown.map(m =>
@@ -1984,9 +2272,38 @@ function setShownExercises(checked, only = false) {
   renderExerciseList();
   applyFilters();
 }
+const testListSelect = document.getElementById('testListSelect');
+const testLists = data.test_lists || [];
+testListSelect.innerHTML = testLists.length
+  ? testLists.map((l, i) => `<option value="${i}">List: ${l.name} (${l.exercises.length}${l.missing ? `, +${l.missing} not run yet` : ''})</option>`).join('')
+  : '<option>No test list files found</option>';
+function applyTestList(mode) {
+  const list = testLists[+testListSelect.value];
+  if (!list) return;
+  if (mode === 'only') activeExercises = new Set(list.exercises);
+  else list.exercises.forEach(ex => { if (mode === 'add') activeExercises.add(ex); else activeExercises.delete(ex); });
+  renderExerciseList();
+  applyFilters();
+}
+document.getElementById('testListOnlyBtn').addEventListener('click', () => applyTestList('only'));
+document.getElementById('testListAddBtn').addEventListener('click', () => applyTestList('add'));
+document.getElementById('testListRemoveBtn').addEventListener('click', () => applyTestList('remove'));
 document.getElementById('exercisesDefaultBtn').addEventListener('click', resetExercisesToDefault);
 document.getElementById('exercisesAllBtn').addEventListener('click', () => setShownExercises(true));
 document.getElementById('exercisesNoneBtn').addEventListener('click', () => setShownExercises(false));
+document.getElementById('exercisesCommonBtn').addEventListener('click', () => {
+  const idx = data.matrix_models.map((m, i) => activeModels.has(m) ? i : -1).filter(i => i >= 0);
+  const covered = data.matrix.filter(r => idx.every(i => r.cells[i] && r.cells[i].total > 0)).map(r => r.label);
+  activeExercises = new Set(idx.length ? covered : []);
+  // Name the models limiting the result, so a tiny answer is explainable.
+  const counts = idx.map(i => [data.matrix_models[i], data.matrix.filter(r => r.cells[i] && r.cells[i].total > 0).length])
+    .sort((a, b) => a[1] - b[1]).slice(0, 3);
+  document.getElementById('commonNote').textContent = idx.length
+    ? `Common: ${covered.length} test${covered.length === 1 ? '' : 's'} run by all ${idx.length} selected models. Fewest tests: ${counts.map(([m, c]) => `${m} (${c})`).join(', ')}`
+    : 'No models selected.';
+  renderExerciseList();
+  applyFilters();
+});
 document.getElementById('exercisesOnlyBtn').addEventListener('click', () => setShownExercises(true, true));
 renderExerciseList();
 
