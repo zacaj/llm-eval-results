@@ -6,6 +6,11 @@ Usage:
     python3 generate_viz_data.py
 
 Reads eval-results-per-test.tsv + eval-viz-template.html, writes eval-viz.html.
+
+Each runner's rows go through an adapter (aider_attempt / harbor_attempt) into common ATTEMPT
+records (see attempt fields there); build_dataset only reads those, never raw TSV
+columns, so another runner (Harbor, viz-harbor-plan.md) only needs its own adapter.
+End reason / flags per attempt come from outcomes.py.
 Re-run any time the tsv changes (new runs added, bad rows deleted, etc.) —
 there is no other cache; eval-viz.html is fully derived and safe to overwrite.
 """
@@ -16,8 +21,12 @@ import json
 import re
 import sys
 from collections import defaultdict
+from datetime import datetime
+
+import outcomes
 
 TSV_PATH = 'eval-results-per-test.tsv'
+HARBOR_TSV_PATH = 'harbor-trials.tsv'  # harbor/collect.py
 TEMPLATE_PATH = 'eval-viz-template.html'
 OUTPUT_PATH = 'eval-viz.html'
 
@@ -60,20 +69,15 @@ LABELS = {
     'Qwen3.8-27B-hybrid-A-gsq0-31.gguf': 'Qwen3.8-27B hybrid-A (GSQ layers 0-31)',
 }
 
-# The task list itself is fully dynamic (see `pins` in build_dataset — every
-# (language, exercise) with at least one row, discovered fresh from the tsv each run).
-# This is just the seed for the exercise filter's initial selection, so the page opens
-# to a small curated comparison instead of every task the harness has ever touched.
-# From shortlist-15.txt, originally: fixed (language, exercise) pairs, each pinned to
-# ONE language track — must match by (language, exercise), not exercise name alone, the
-# same collision the dynamic discovery above also has to account for.
-PINS_DEFAULT = [
-    ('javascript', 'triangle'), ('javascript', 'grade-school'), ('javascript', 'tournament'),
-    ('cpp', 'allergies'), ('cpp', 'sublist'), ('go', 'book-store'), ('javascript', 'wordy'),
-    ('go', 'two-bucket'), ('javascript', 'alphametics'), ('javascript', 'promises'),
-    ('go', 'bowling'), ('cpp', 'spiral-matrix'), ('go', 'paasio'),
-    ('javascript', 'resistor-color-trio'), ('cpp', 'clock'),
-]
+# The task list itself is fully dynamic (see `pins` in build_dataset — every task with
+# at least one row, discovered fresh from the data each run). The exercise filter starts
+# with the DEFAULT_TOP_N exercises the most distinct models have run, every runner variant
+# of each, so the page opens to the best-compared tasks (and their Harbor counterparts)
+# and keeps up as testing moves on, instead of a hand-kept list going stale.
+DEFAULT_TOP_N = 20
+
+# Short runner code appended to every task label, so no runner is the implicit one.
+VARIANT_CODES = {'aider': 'A', 'harbor': 'H', 'harbor-tc': 'HT'}
 
 
 _warned_unmapped = set()
@@ -144,6 +148,21 @@ def _norm_num(v):
         return v
 
 
+# run.sh's REASONING_EFFORT bundle: the thinking cap each effort sends per request. Rows
+# from before run.sh sent one have srv.--reasoning-budget blank; they ran at the low
+# baseline's 4k (run.sh comment), which this table also gives them.
+AIDER_EFFORT_THINK = {'low': '4096', 'medium': '8192', 'xhigh': '16384', 'high': '16384'}
+
+
+def norm_think(v):
+    """Thinking cap rounded to thousands ('4k'): aider's low sends 4096, Harbor's proxy cap
+    is 4000 -- the same setting in practice, and they must pool."""
+    try:
+        return f'{round(float(v) / 1000)}k' if float(v) > 0 else ''
+    except (TypeError, ValueError):
+        return ''
+
+
 def behavior_settings(row):
     """The per-run knobs that change how a model behaves (and so which 'model' a row is).
 
@@ -156,6 +175,10 @@ def behavior_settings(row):
         temp = row['srv.--temp']
     settings = {
         'effort': row['reasoning_effort'],  # a bundle: also implies the thinking-token budget
+        # the cap actually sent; blank (older rows) = the effort's bundle value. Remote
+        # (OpenRouter) models never get a local cap.
+        'think': '' if row['model'].startswith('openrouter/') else norm_think(
+            row.get('srv.--reasoning-budget') or AIDER_EFFORT_THINK.get(row['reasoning_effort'] or 'low')),
         'temp': _norm_num(temp),
         'top_p': _norm_num(row['srv.--top-p']),
         'top_k': _norm_num(row['srv.--top-k']),
@@ -165,9 +188,34 @@ def behavior_settings(row):
     return {k: v for k, v in settings.items() if v}
 
 
-def load_rows():
-    with open(TSV_PATH) as f:
-        rows = list(csv.DictReader(f, delimiter='\t'))
+def harbor_settings(row):
+    """behavior_settings for a Harbor trial, on the same keys so both runners' rows are
+    labeled together and a Harbor trial joins the aider model it matches (same gguf, same
+    samplers, same effort). Effort is Claude Code's (what Strata resolved, from the
+    proxy) -- not the same mechanism as aider's bundle, but the same intent. The agent
+    only differs between Harbor runs (aider rows have none, and a blank is never a
+    difference). The eval proxy's token budget is left out: it only matters when hit
+    (budget_hit, rare), and splitting a model by it would cut it off from its other runs."""
+    settings = {
+        'agent': row['agent'],
+        'effort': row.get('px_effort') or row.get('srv.eff.reasoning_effort', ''),
+        # thinking cap, rounded like aider's (norm_think) so the two runners pool
+        'think': norm_think(row.get('srv.eff.reasoning_budget', '')),
+        'temp': _norm_num(row.get('srv.eff.temp') or row.get('srv.--temp', '')),
+        'top_p': _norm_num(row.get('srv.--top-p', '')),
+        'top_k': _norm_num(row.get('srv.--top-k', '')),
+        'min_p': _norm_num(row.get('srv.--min-p', '')),
+    }
+    return {k: v for k, v in settings.items() if v}
+
+
+def settings_of(row):
+    return harbor_settings(row) if row.get('_runner') == 'harbor' else behavior_settings(row)
+
+
+def assign_model_keys(rows):
+    """Sets each row's srv.-m to its model key: the gguf filename, plus '@<diffs>' when
+    it ran at other than the file's usual settings (see short_label)."""
     # The same gguf can be served from different mount dirs (/models, /models3, ...);
     # keying models by full path made those separate models with identical labels
     # (duplicate heatmap column + filter checkbox). The filename is the identity.
@@ -181,7 +229,7 @@ def load_rows():
     # Per file, each setting's usual value is its own mode; a blank/unknown value (older
     # rows that predate the capture) is never a difference.
     for row in rows:
-        row['_settings'] = behavior_settings(row)
+        row['_settings'] = settings_of(row)
     counts = defaultdict(lambda: defaultdict(lambda: defaultdict(int)))
     for row in rows:
         for k, v in row['_settings'].items():
@@ -212,42 +260,495 @@ def load_rows():
             # Spell out every setting that differs among the peers, filling in the usual
             # value where this combo doesn't differ (blank/unrecorded ones are skipped).
             diffs = {k: diffs.get(k, usual[m].get(k)) for k in row['_settings'] if k in keys}
-        if diffs:
+        row['_label'] = {k: v for k, v in diffs.items() if v}
+    # The thinking cap mostly follows effort, so a label that already shows an effort
+    # difference leaves the cap out -- unless that would merge two different combos
+    # (same file and effort, different cap), in which case those keep it.
+    shortened = defaultdict(set)
+    short = lambda d: tuple((k, v) for k, v in d.items() if not (k == 'think' and 'effort' in d))
+    for row in rows:
+        shortened[(row['srv.-m'], short(row['_label']))].add(tuple(row['_label'].items()))
+    for row in rows:
+        label = row['_label']
+        s_ = short(label)
+        if len(shortened[(row['srv.-m'], s_)]) == 1:
+            label = dict(s_)
+        if label:
             # Effort stays bare ('@xhigh') for continuity with older labels.
-            row['srv.-m'] = m + '@' + ','.join(v if k == 'effort' else f'{k}={v}'
-                                               for k, v in diffs.items() if v)
+            row['srv.-m'] = row['srv.-m'] + '@' + ','.join(v if k == 'effort' else f'{k}={v}'
+                                                           for k, v in label.items())
+
+
+def _int(v):
+    return int(v) if v not in ('', None) else None
+
+
+def aider_attempt(row):
+    """One aider TSV row -> attempt record. Fields every runner's adapter provides:
+      runner, variant   'aider', 'aider' (a Harbor suite would be e.g. 'harbor-tc')
+      task              (variant, language, exercise): the unit task-level stats use;
+                        twin = (language, exercise) links variants of one exercise
+      model             model key (gguf filename[@settings diffs]) -> short_label()
+      seed, timestamp, run
+      pass              bool
+      steps             tries (aider) / test calls used, or None
+      duration          seconds or None; out_tokens / in_tokens: int or None
+      gen_sec           time the model spent on requests (eval proxy), or None: tok/s
+                        uses it over duration, which also counts tool/test time
+      end_reason, flags outcomes.py
+      timed_out, ctx_exhausted   heatmap markers (end reason timeout / context-window count)
+      raw               the source row, for runner-specific charts (chart4, summary)"""
+    end, flags = outcomes.classify_aider(row)
+    lang, ex = row['language'], row['exercise']
+    return {
+        'runner': 'aider', 'variant': 'aider', 'task': ('aider', lang, ex), 'twin': (lang, ex),
+        'language': lang, 'exercise': ex, 'model': row['srv.-m'],
+        'seed': row['seed'], 'timestamp': row['timestamp'], 'run': row['run_cmd'],
+        'pass': row['pass'] == 'true', 'steps': _int(row['tries_taken']),
+        'duration': float(row['duration']) if row['duration'] != '' else None,
+        'out_tokens': _int(row['completion_tokens']), 'in_tokens': _int(row['prompt_tokens']),
+        'gen_sec': float(row['px_model_sec']) if row.get('px_model_sec') not in ('', '0', None) else None,
+        'tokens_at_pass': None,  # an aider attempt stops at its pass: tokens is the figure
+        'think_blocks': None, 'think_cuts': None,
+        'end_reason': end, 'flags': flags, 'trust': outcomes.trust(flags),
+        'timed_out': end == 'timeout',
+        'ctx_exhausted': int(row['exhausted_context_windows'] or 0),
+        'raw': row,
+    }
+
+
+def mark_superseded(attempts):
     # A (model, exercise, seed) triple is one independent sample: re-running the same
     # seed just re-samples the same outcome (greedy/legacy rows have an empty seed and
     # count as one shared seed), so repeat runs must not stack up as extra evidence —
     # 5 identical failures on seed 1 are one failure, not five. Only the latest run per
     # seed is scored; earlier ones are flagged `_superseded` and kept for the tooltip.
     latest = {}
-    for row in rows:
-        key = (row['srv.-m'], row['language'], row['exercise'], row['seed'])
-        if key not in latest or row['timestamp'] >= latest[key]['timestamp']:
-            latest[key] = row
-    for row in rows:
-        row['_superseded'] = latest[(row['srv.-m'], row['language'], row['exercise'], row['seed'])] is not row
-    return rows
+    for a in attempts:
+        key = (a['model'], a['task'], a['seed'])
+        if key not in latest or a['timestamp'] >= latest[key]['timestamp']:
+            latest[key] = a
+    for a in attempts:
+        a['superseded'] = latest[(a['model'], a['task'], a['seed'])] is not a
 
 
-def build_dataset(rows):
+def harbor_attempt(row):
+    """One harbor-trials.tsv row -> attempt record (fields: see aider_attempt).
+    variant: 'harbor-tc' for test-calls tasks (any N: a task's N is a limiter tuned once,
+    not something to compare), else 'harbor'. seed = the trial id: -k attempts are
+    independent samples (no seed is sent), so none may collapse into another.
+    steps = run-tests calls used (tc tasks only); duration = agent time, minus server
+    slowdowns when collect.py measured them."""
+    end, flags = outcomes.classify_harbor(row)
+    lang, ex = row['language'], row['exercise']
+    variant = 'harbor-tc' if re.search(r'__tc\d+$', row['task']) else 'harbor'
+    ts = row['started_at'][:19] + 'Z' if row['started_at'] else ''
+    dur = row['agent_sec_adj'] or row['agent_sec']
+    return {
+        'runner': 'harbor', 'variant': variant, 'task': (variant, lang, ex), 'twin': (lang, ex),
+        'language': lang, 'exercise': ex, 'model': row['srv.-m'],
+        'seed': row['trial'], 'timestamp': ts, 'run': row['job'],
+        'pass': row['reward'] == '1',
+        'steps': _int(row['test_calls']) if variant == 'harbor-tc' else None,
+        'duration': float(dur) if dur else None,
+        'out_tokens': _int(row['px_output_tokens'] or row['out_tokens']), 'in_tokens': _int(row['in_tokens']),
+        'gen_sec': float(row['px_model_sec']) if row.get('px_model_sec') not in ('', '0', None) else None,
+        # output tokens used by the time the code first passed every test (from mid-run
+        # grading, harbor-progress.tsv), when known; the agent may keep going after that
+        'tokens_at_pass': _int(row.get('first_pass_out_tokens', '')),
+        # thinking blocks, and how many the reasoning budget cut off: the per-block rate is
+        # the measure (the per-trial reasoning_cut flag hits most multi-turn trials)
+        'think_blocks': _int(row.get('thinking_blocks', '')), 'think_cuts': _int(row.get('thinking_cutoffs', '')),
+        'end_reason': end, 'flags': flags, 'trust': outcomes.trust(flags),
+        'timed_out': end == 'timeout', 'ctx_exhausted': 0,
+        'raw': row,
+    }
+
+
+def read_tsv(path):
+    try:
+        with open(path) as f:
+            return list(csv.DictReader(f, delimiter='\t'))
+    except FileNotFoundError:
+        return []
+
+
+def fill_harbor_models(rows, aider_rows):
+    """Harbor trials get srv.-m (the gguf served) when the job captured server settings,
+    else the agent's model alias mapped through aider's alias -> gguf pairs (jobs from
+    before the capture), else the bare alias."""
+    alias = defaultdict(set)
+    for r in aider_rows:
+        if r['srv.-m']:
+            alias[r['model'].split('/')[-1].lower()].add(r['srv.-m'].split('/')[-1])
+    for r in rows:
+        r['_runner'] = 'harbor'
+        if not r.get('srv.-m'):
+            files = alias.get(r['model'].lower(), set())
+            r['srv.-m'] = next(iter(files)) if len(files) == 1 else r['model']
+
+
+def load_attempts():
+    """Scored attempts, plus how many harness/server failures were dropped (end reason
+    'harness': the run never got a fair go, e.g. auth errors or no server output, so
+    it's no evidence about the model either way)."""
+    aider_rows = read_tsv(TSV_PATH)
+    harbor_rows = read_tsv(HARBOR_TSV_PATH)
+    fill_harbor_models(harbor_rows, aider_rows)
+    # one labeling pass over both runners: a model's usual settings are found across all
+    # its runs, so Harbor trials land on the aider model with matching settings
+    assign_model_keys(aider_rows + harbor_rows)
+    attempts = [aider_attempt(r) for r in aider_rows] + [harbor_attempt(r) for r in harbor_rows]
+    excluded = sum(1 for a in attempts if a['end_reason'] == 'harness')
+    recent = recent_runs(attempts)
+    attempts = [a for a in attempts if a['end_reason'] != 'harness']
+    mark_superseded(attempts)
+    return attempts, excluded, recent
+
+
+def model_settings(attempts):
+    """Per model label: each differentiating setting -> the sorted values its attempts ran
+    with (a model key pools runs, so a value can be mixed, e.g. aider + Harbor). Feeds the
+    filter panel's settings section. Unrecorded settings show as '(unset)'."""
+    vals = defaultdict(lambda: defaultdict(set))
+    for a in attempts:
+        raw = a['raw']
+        st = dict(raw.get('_settings') or settings_of(raw))
+        st['runner'] = a['runner']
+        if a['runner'] == 'harbor':
+            st['budget'] = raw.get('budget', '')
+        for k, v in st.items():
+            vals[short_label(a['model'])][k].add(v or '(unset)')
+    keys = {k for d in vals.values() for k in d}
+    return {m: {k: sorted(d.get(k, {'(unset)'})) for k in sorted(keys)} for m, d in vals.items()}
+
+
+# ---- settings effects: the same gguf run at different settings, compared stat by stat ----
+# Each stat: (key, label, kind, per-attempt value). 'rate' stats compare per-task means as
+# a difference in points; 'ratio' stats as the geometric mean of per-task B/A ratios.
+def _px(a, col):
+    v = a['raw'].get(col, '')
+    return float(v) if v not in ('', None) else None
+
+
+def _per_req(a, col):
+    n, v = _px(a, 'px_requests'), _px(a, col)
+    return v / n if n and v is not None else None
+
+
+# better: which way is an improvement ('up' / 'down'), or None for a diagnostic with no
+# good direction (more reasoning per request is neither better nor worse by itself)
+EFFECT_STATS = [
+    ('pass', 'pass rate', 'rate', 'up', lambda a: float(a['pass'])),
+    ('timeout', 'timeout rate', 'rate', 'down', lambda a: float(a['timed_out'])),
+    ('out_tokens', 'output tokens', 'ratio', 'down', lambda a: a['out_tokens'] or None),
+    ('duration', 'duration', 'ratio', 'down', lambda a: a['duration'] or None),
+    ('steps', 'tries / test calls', 'ratio', 'down', lambda a: a['steps'] or None),
+    ('requests', 'requests', 'ratio', 'down', lambda a: _px(a, 'px_requests') or None),
+    ('think_cut', 'thinking cut-off rate', 'rate', 'down',
+     lambda a: a['think_cuts'] / a['think_blocks'] if a['think_blocks'] else None),
+    # glitch / quality counters (None where a runner doesn't record them)
+    ('tests_frac', 'tests passed (fraction, Harbor)', 'rate', 'up',
+     lambda a: _px(a, 'tests_frac_adj') if _px(a, 'tests_frac_adj') is not None else _px(a, 'tests_frac')),
+    ('malformed', 'attempts with malformed calls / edits', 'rate', 'down', lambda a: float('malformed' in a['flags'])),
+    ('tool_err', 'tool calls that errored (Harbor)', 'rate', 'down',
+     lambda a: _px(a, 'tool_errors') / _px(a, 'tool_calls') if _px(a, 'tool_calls') else None),
+    ('edit_err', 'edits that failed (Harbor)', 'rate', 'down',
+     lambda a: _px(a, 'edit_errors') / _px(a, 'edits') if _px(a, 'edits') else None),
+    ('done_wrong', 'declared done with tests failing (Harbor)', 'rate', 'down',
+     lambda a: float(a['end_reason'] == 'done_wrong') if a['runner'] == 'harbor' else None),
+    ('syntax', 'attempts with syntax / lint errors (aider)', 'rate', 'down',
+     lambda a: float(bool(_px(a, 'syntax_errors') or _px(a, 'indentation_errors') or 'lint' in a['flags']))
+     if a['runner'] == 'aider' else None),
+    ('reason_req', 'reasoning tok / request', 'ratio', None, lambda a: _per_req(a, 'px_reasoning_tokens') or None),
+    ('answer_req', 'answer tok / request', 'ratio', None, lambda a: _per_req(a, 'px_answer_tokens') or None),
+]
+# "big": a difference worth pointing out, if the bootstrap interval also excludes zero
+EFFECT_BIG = {'rate': 0.10, 'ratio': 0.25}
+# a rate stat's natural range: the change that counts as a full-size effect (thresholds
+# scale with it). Cut-off rates live in 0-10%, so 25 points would make every change tiny.
+EFFECT_RATE_SPAN = {'think_cut': 0.05, 'tool_err': 0.10, 'edit_err': 0.10}
+EFFECT_MIN_TASKS = 3
+EFFECT_LEVELS = (50, 60, 70, 80, 90, 95, 99)  # confidence levels exported per stat (lo, hi) for the page's selector
+EFFORT_ORDER = {'none': 0, 'low': 1, 'medium': 2, 'high': 3, 'xhigh': 4}
+
+
+def _setting_order(k, v):
+    if k == 'effort':
+        return (0, EFFORT_ORDER.get(v, 9), v)
+    try:
+        return (0, float(v.rstrip('k')), v)
+    except ValueError:
+        return (1, 0, v)
+
+
+def _effect_stats(task_pairs, rng, boots):
+    """task_pairs: [(A attempts, B attempts)] per matched task -> per-stat comparison."""
+    stats = []
+    for key, label, kind, better, fn in EFFECT_STATS:
+        pairs = []
+        for A, B in task_pairs:
+            va = [x for x in map(fn, A) if x is not None]
+            vb = [x for x in map(fn, B) if x is not None]
+            if va and vb:
+                pairs.append((sum(va) / len(va), sum(vb) / len(vb)))
+        if len(pairs) < EFFECT_MIN_TASKS:
+            continue
+        diffs = [b - a for a, b in pairs] if kind == 'rate' else [math.log(b / a) for a, b in pairs]
+        est = sum(diffs) / len(diffs)
+        bs = sorted(sum(rng.choice(diffs) for _ in diffs) / len(diffs) for _ in range(boots))
+        # two-sided intervals at each confidence level the page can switch between
+        back = (lambda x: math.exp(x) - 1) if kind == 'ratio' else (lambda x: x)
+        ci = {str(lv): [round(back(bs[int((1 - lv / 100) / 2 * boots)]), 4),
+                        round(back(bs[int((1 + lv / 100) / 2 * boots) - 1]), 4)] for lv in EFFECT_LEVELS}
+        lo, hi = bs[int(0.05 * boots)], bs[int(0.95 * boots) - 1]
+        if kind == 'ratio':
+            est, lo, hi = (math.exp(x) - 1 for x in (est, lo, hi))
+        sig = lo > 0 or hi < 0
+        stats.append({
+            'key': key, 'label': label, 'kind': kind, 'better': better, 'n': len(pairs),
+            'a': round(sum(p[0] for p in pairs) / len(pairs), 4),
+            'b': round(sum(p[1] for p in pairs) / len(pairs), 4),
+            'delta': round(est, 4), 'lo': round(lo, 4), 'hi': round(hi, 4), 'ci': ci,
+            'span': EFFECT_RATE_SPAN.get(key, 0.25) if kind == 'rate' else None,
+            'sig': sig, 'big': sig and abs(est) >= (EFFECT_BIG['rate'] / 0.25 * EFFECT_RATE_SPAN.get(key, 0.25)
+                                                    if kind == 'rate' else EFFECT_BIG[kind]),
+        })
+    return stats
+
+
+RUNNER_ORDER = {'aider': 0, 'harbor': 1, 'harbor-tc': 2}
+
+
+def settings_effects(attempts, boots=1000):
+    """Per gguf, each settings change compared on the tasks both sides ran: per-task means
+    (a task run 3x doesn't outweigh one run once), with a 90% bootstrap interval over
+    tasks. A combo is the attempt's own settings (raw '_settings'), not its model key,
+    which hides the usual combo's values. Every pair of combos differing the same way
+    (e.g. effort low->xhigh at temp 0.6 and again at temp 0.8, or in aider and in Harbor)
+    is one comparison, pooled over all their matched tasks, so a model appears once per
+    change. Pairs differing in several settings are confounded and flagged.
+    Also one 'runner' comparison per gguf and pair of runners, matched on (language,
+    exercise) with all settings pooled: runs on different harnesses rarely share settings,
+    so these are always confounded (also_differs lists the settings whose values differ)."""
+    import random
+    rng = random.Random(0)
+    by_combo = defaultdict(lambda: defaultdict(list))  # (gguf, combo) -> task -> attempts
+    by_runner = defaultdict(lambda: defaultdict(list))  # (gguf, variant) -> twin -> attempts
+    for a in attempts:
+        if a['superseded']:
+            continue
+        gguf = a['model'].split('@')[0]
+        combo = tuple(sorted((a['raw'].get('_settings') or {}).items()))
+        by_combo[(gguf, combo)][a['task']].append(a)
+        by_runner[(gguf, a['variant'])][a['twin']].append(a)
+    keys = sorted(by_combo)
+    changes = defaultdict(list)  # (gguf, axes, a vals, b vals) -> [(A, B, shared, d1, d2)]
+    for i, (g1, c1) in enumerate(keys):
+        for g2, c2 in keys[i + 1:]:
+            if g1 != g2:
+                continue
+            d1, d2 = dict(c1), dict(c2)
+            # a setting recorded on only one side is unknown, never a difference
+            axes = tuple(sorted(k for k in d1.keys() & d2.keys() if d1[k] != d2[k]))
+            if not axes:
+                continue
+            shared = sorted(by_combo[(g1, c1)].keys() & by_combo[(g2, c2)].keys())
+            if not shared:
+                continue
+            # orient so A is the "lower" value of the first differing setting (new names:
+            # c1/d1 belong to the outer loop and must not be swapped in place)
+            ca, cb, da, db = c1, c2, d1, d2
+            if _setting_order(axes[0], db[axes[0]]) < _setting_order(axes[0], da[axes[0]]):
+                ca, cb, da, db = cb, ca, db, da
+            key = (g1, axes, tuple(da[k] for k in axes), tuple(db[k] for k in axes))
+            changes[key].append((by_combo[(g1, ca)], by_combo[(g1, cb)], shared, da, db))
+    out = []
+    for (gguf, axes, va, vb), subs in changes.items():
+        task_pairs = [(A[t], B[t]) for A, B, shared, _, _ in subs for t in shared]
+        if len(task_pairs) < EFFECT_MIN_TASKS:
+            continue
+        stats = _effect_stats(task_pairs, rng, boots)
+        if not stats:
+            continue
+        # settings the same on both sides of every merged pair
+        fixed = None
+        for _, _, _, d1, d2 in subs:
+            f = {k: v for k, v in d1.items() if k not in axes and d2.get(k) == v}
+            fixed = f if fixed is None else {k: v for k, v in fixed.items() if f.get(k) == v}
+        out.append({
+            'quant': quant_of(gguf), 'model': short_label(gguf), 'axes': list(axes),
+            'a': dict(zip(axes, va)), 'b': dict(zip(axes, vb)), 'fixed': fixed or {},
+            'tasks': len(task_pairs), 'runners': sorted({t[0] for _, _, sh, _, _ in subs for t in sh}),
+            'attempts_a': sum(len(x) for x, _ in task_pairs), 'attempts_b': sum(len(y) for _, y in task_pairs),
+            'big': sum(s['big'] for s in stats), 'sig': sum(s['sig'] for s in stats),
+            'stats': stats,
+        })
+    rkeys = sorted(by_runner, key=lambda k: (k[0], RUNNER_ORDER.get(k[1], 9)))
+    for i, (g1, v1) in enumerate(rkeys):
+        for g2, v2 in rkeys[i + 1:]:
+            if g1 != g2:
+                continue
+            A, B = by_runner[(g1, v1)], by_runner[(g1, v2)]
+            shared = sorted(A.keys() & B.keys())
+            if len(shared) < EFFECT_MIN_TASKS:
+                continue
+            stats = _effect_stats([(A[t], B[t]) for t in shared], rng, boots)
+            if not stats:
+                continue
+            vals = lambda side: {k: {v for t in shared for x in side[t]
+                                     for k2, v in (x['raw'].get('_settings') or {}).items() if k2 == k}
+                                 for k in EFFECT_SETTING_KEYS}
+            sa, sb = vals(A), vals(B)
+            also = sorted(k for k in EFFECT_SETTING_KEYS if sa[k] and sb[k] and sa[k] != sb[k])
+            out.append({
+                'quant': quant_of(g1), 'model': short_label(g1), 'axes': ['runner'], 'a': {'runner': v1}, 'b': {'runner': v2},
+                'fixed': {}, 'also_differs': also,
+                'tasks': len(shared), 'runners': [v1, v2],
+                'attempts_a': sum(len(A[t]) for t in shared), 'attempts_b': sum(len(B[t]) for t in shared),
+                'big': sum(s['big'] for s in stats), 'sig': sum(s['sig'] for s in stats),
+                'stats': stats,
+            })
+    out.sort(key=lambda c: (-c['big'], len(c['axes']) > 1, -c['sig'], -c['tasks']))
+    return out
+
+
+EFFECT_SETTING_KEYS = ('effort', 'think', 'temp', 'top_p', 'top_k', 'min_p', 'dry')
+
+
+RECENT_RUNS = 8
+RUN_GAP_SEC = 2 * 3600
+
+
+def recent_runs(attempts, n=RECENT_RUNS):
+    """The latest n runs (an aider run_cmd / a Harbor job), harness failures included so
+    a broken run still shows up. aider reuses run_cmd when a command is rerun, so one
+    run_cmd is split wherever its attempts are more than RUN_GAP_SEC apart."""
+    def ts(a):
+        try:
+            return datetime.fromisoformat(a['timestamp'].replace('Z', '+00:00')).timestamp()
+        except ValueError:
+            return None
+    by_run = defaultdict(list)
+    for a in attempts:
+        if ts(a) is not None:
+            by_run[(a['runner'], a['run'])].append(a)
+    groups = []
+    for (runner, run), atts in by_run.items():
+        atts.sort(key=ts)
+        cur = [atts[0]]
+        for a in atts[1:]:
+            if ts(a) - ts(cur[-1]) > RUN_GAP_SEC:
+                groups.append((runner, run, cur))
+                cur = []
+            cur.append(a)
+        groups.append((runner, run, cur))
+    groups.sort(key=lambda g: ts(g[2][-1]), reverse=True)
+    out = []
+    for runner, run, atts in groups[:n]:
+        scored = [a for a in atts if a['end_reason'] != 'harness']
+        raw = atts[-1]['raw']
+        durs = [a['duration'] for a in scored if a['duration'] is not None]
+        toks = [a['out_tokens'] for a in scored if a['out_tokens'] is not None]
+        gen = [a['gen_sec'] for a in scored if a['gen_sec']]
+        ends = defaultdict(int)
+        for a in atts:
+            ends[a['end_reason']] += 1
+        if runner == 'aider':
+            details = {'edit format': raw['edit_format'], 'tries': raw['tries'], 'effort': raw['reasoning_effort'],
+                       'max tokens': raw['max_tokens'], 'target': raw['target'], 'alias': raw['model']}
+        else:
+            details = {'agent': f"{raw['agent']} {raw['agent_version']}".strip(), 'effort': raw.get('px_effort', ''),
+                       'budget': raw['budget'], 'max dur': raw['max_dur'], 'alias': raw['model']}
+        details.update({f'{k}': v for k, v in settings_of(raw).items() if k != 'effort' or runner == 'harbor'})
+        out.append({
+            'runner': runner, 'run': run, 'model': short_label(atts[-1]['model']),
+            'start': atts[0]['timestamp'], 'end': atts[-1]['timestamp'],
+            # wall clock: harbor timestamps are trial starts, aider's are exercise ends
+            'wall_sec': round(max(ts(a) + (a['duration'] or 0) for a in atts) - ts(atts[0])) if runner == 'harbor'
+                        else round(ts(atts[-1]) - min(ts(a) - (a['duration'] or 0) for a in atts)),
+            'attempts': len(atts), 'harness': len(atts) - len(scored),
+            'passes': sum(a['pass'] for a in scored),
+            'tasks': len({a['task'] for a in atts}),
+            'seeds': sorted({a['seed'] for a in atts if a['seed']})[:6] if runner == 'aider' else [],
+            'avg_dur': round(sum(durs) / len(durs), 1) if durs else None,
+            'out_tokens': sum(toks) if toks else None,
+            'tok_s': round(sum(toks) / sum(gen), 1) if gen and toks else None,
+            'avg_steps': round(sum(a['steps'] for a in scored if a['pass'] and a['steps'] is not None)
+                               / max(1, sum(1 for a in scored if a['pass'] and a['steps'] is not None)), 2)
+                         if any(a['pass'] and a['steps'] is not None for a in scored) else None,
+            'ends': dict(ends),
+            'details': {k: v for k, v in details.items() if v not in ('', None)},
+            'results': [{'label': task_label(a['task']), 'pass': a['pass'], 'end': a['end_reason'],
+                         'steps': a['steps'], 'dur': a['duration']} for a in atts],
+        })
+    return out
+
+
+def task_label(task):
+    variant, lang, ex = task
+    return f'{ex} ({lang}) ·{VARIANT_CODES.get(variant, variant)}'
+
+
+def _s(v):
+    """steps as the page has always received them: a string, '' when unknown."""
+    return '' if v is None else str(v)
+
+
+# Aider has no trajectory to show recall in, but a model that recalled an exercise's
+# solution in Harbor almost certainly knows it in aider too. Each aider attempt gets
+# `recalled_inferred` from the Harbor attempts of the same model key (or, weaker, the
+# same gguf at any settings) on the same exercise, and a trust discounted by that
+# recall rate, gentler than direct evidence (RECALL_INFER_CONFIDENCE).
+RECALL_INFER_CONFIDENCE = {'model': 0.7, 'gguf': 0.5}
+RECALL_INFER_MIN_RATE = 0.5
+# heatmap (computed in the viz, over the date window): a cell where at least half the
+# attempts are under LOW_TRUST gets a corner mark; a task where LOW_TRUST_TASK_SHARE of
+# all its shown attempts are gets a * on its name
+LOW_TRUST = 0.5
+LOW_TRUST_TASK_SHARE = 0.5
+
+
+def infer_recall(rows):
+    seen = {'model': defaultdict(list), 'gguf': defaultdict(list)}
+    for r in rows:
+        if r['runner'] == 'harbor':
+            hit = 'recalled_content' in r['flags']
+            seen['model'][(r['model'], r['twin'])].append(hit)
+            seen['gguf'][(r['model'].split('@')[0], r['twin'])].append(hit)
+    full_drop = 1 - outcomes.TRUST['recalled_content']
+    for r in rows:
+        if r['runner'] != 'aider':
+            continue
+        for level, key in (('model', r['model']), ('gguf', r['model'].split('@')[0])):
+            hits = seen[level].get((key, r['twin']))
+            if hits:
+                rate = sum(hits) / len(hits)
+                if rate >= RECALL_INFER_MIN_RATE:
+                    r['flags'] = set(r['flags']) | {'recalled_inferred'}
+                r['trust'] = min(r['trust'], round(1 - rate * full_drop * RECALL_INFER_CONFIDENCE[level], 3))
+                break
+
+
+def build_dataset(rows, excluded_harness=0):
+    infer_recall(rows)
+    # `rows` are attempt records (load_attempts), not TSV rows.
     # The task list is fully dynamic: every (language, exercise) pair with at least one
     # row is "in", discovered fresh from the tsv each run — no hardcoded list to keep in
     # sync as the harness adds new comparison tasks over time. A voided/deleted
     # exercise (every one of its rows removed) automatically drops back out, for the
     # same reason: it just no longer appears in `rows`.
-    pins = sorted({(row['language'], row['exercise']) for row in rows})
+    pins = sorted({row['task'] for row in rows})
     pinset = set(pins)
-    pin_label = {(l, e): f'{e} ({l})' for l, e in pins}
+    pin_label = {t: task_label(t) for t in pins}
 
-    # PINS_DEFAULT (the original curated shortlist) no longer scopes what's computed —
-    # it only seeds which tasks the exercise filter starts with selected, so the initial
-    # view stays a small, curated comparison instead of dumping the full (currently
-    # 200+) task list on first load. Defensive same as above: a default pin that's lost
-    # all its data is dropped rather than seeding a filter selection for a task that no
-    # longer exists.
-    default_pins = [p for p in PINS_DEFAULT if p in pinset]
+    # The default selection only seeds which tasks the exercise filter starts with
+    # checked (see DEFAULT_TOP_N); it doesn't scope what's computed.
+    twin_models = defaultdict(set)
+    for row in rows:
+        twin_models[row['twin']].add(row['model'])
+    top_twins = set(sorted(twin_models, key=lambda t: (-len(twin_models[t]), t))[:DEFAULT_TOP_N])
+    default_pins = [t for t in pins if t[1:] in top_twins]
 
     by_model_ex = defaultdict(set)
     for row in rows:
@@ -256,7 +757,7 @@ def build_dataset(rows):
         # languages across the full task list). Name-only counting would undercount a
         # model's real distinct-task coverage whenever it hit the same-named exercise
         # in more than one language track.
-        by_model_ex[row['srv.-m']].add((row['language'], row['exercise']))
+        by_model_ex[row['model']].add(row['task'])
     models_sorted = sorted(by_model_ex, key=lambda m: -len(by_model_ex[m]))
     main = models_sorted[0]  # the model with the most distinct tasks = the full-suite run
     matrix_models = [short_label(m) for m in models_sorted]
@@ -265,7 +766,7 @@ def build_dataset(rows):
     # Every row's (language, exercise) is in `pinset` by construction, so this is just
     # `rows` — kept as its own name since the rest of this function was written around
     # a "shortlist" of rows and renaming every reference below isn't worth the diff.
-    shortlist_rows = [row for row in rows if not row['_superseded']]
+    shortlist_rows = [row for row in rows if not row['superseded']]
 
     # ---- per-test breakdown ----
     # Every run, superseded ones included (flagged) — the hover table shows the full
@@ -273,72 +774,73 @@ def build_dataset(rows):
     detail = []
     for row in rows:
         detail.append({
-            'exercise': row['exercise'], 'language': row['language'], 'model': short_label(row['srv.-m']),
-            'run_cmd': row['run_cmd'], 'pass': row['pass'] == 'true', 'tries': row['tries_taken'],
-            'duration': round(float(row['duration'] or 0), 1), 'timestamp': row['timestamp'],
-            'bailed': row['bailed_on_max_duration'] == 'true',
-            'ctx_exhausted': int(row['exhausted_context_windows'] or 0),
-            'seed': row['seed'], 'superseded': row['_superseded'],
-            'tokens': int(row['prompt_tokens'] or 0) + int(row['completion_tokens'] or 0),
+            'exercise': row['exercise'], 'language': row['language'], 'model': short_label(row['model']),
+            'run_cmd': row['run'], 'pass': row['pass'], 'tries': _s(row['steps']),
+            'duration': round(row['duration'] or 0.0, 1), 'timestamp': row['timestamp'],
+            'bailed': row['timed_out'],
+            'ctx_exhausted': row['ctx_exhausted'],
+            'seed': row['seed'], 'superseded': row['superseded'],
+            'end_reason': row['end_reason'], 'flags': sorted(row['flags']), 'variant': row['variant'],
+            'trust': row['trust'],
+            'label': pin_label[row['task']],
+            'think_blocks': row['think_blocks'], 'think_cuts': row['think_cuts'],
+            'tokens': row['out_tokens'],
         })
     detail.sort(key=lambda d: (d['exercise'], d['model']))
 
     # ---- chart3: tries-taken histogram, all models/exercises (not shortlist-scoped) ----
     hist = defaultdict(lambda: {'pass': 0, 'fail': 0})
     for row in rows:
-        t = row['tries_taken']
+        t = _s(row['steps'])
         if t == '':
             continue
-        hist[t]['pass' if row['pass'] == 'true' else 'fail'] += 1
+        hist[t]['pass' if row['pass'] else 'fail'] += 1
     chart3 = [{'tries': k, **v} for k, v in sorted(hist.items(), key=lambda kv: int(kv[0]))]
 
-    # ---- chart4: failure-mode breakdown, all failed runs ----
-    fail_rows_all = [row for row in rows if row['pass'] == 'false']
-    modes = [
-        ('error_outputs', 'Produced error output'),
-        ('exhausted_context_windows', 'Exhausted context window'),
-        ('user_asks', 'Model asked a clarifying question'),
-        ('num_malformed_responses', 'Sent a malformed edit'),
-        ('test_timeouts', 'Test run timed out'),
-    ]
-    chart4 = []
-    for col, label in modes:
-        nz = sum(1 for row in fail_rows_all if int(row[col] or 0) > 0)
-        chart4.append({'label': label, 'count': nz, 'pct': round(nz / len(fail_rows_all) * 100, 1)})
+    # ---- chart4: failure-mode breakdown, all failed runs: outcomes.py flags (aider's own
+    # user_asks / error_outputs counters mislabel or mix these, see outcomes.py) ----
+    fail_rows_all = [row for row in rows if not row['pass']]
+    flag_counts = defaultdict(int)
+    for row in fail_rows_all:
+        for f in row['flags']:
+            flag_counts[f] += 1
+    chart4 = [{'label': outcomes.FLAGS[f], 'count': n, 'pct': round(n / len(fail_rows_all) * 100, 1)}
+              for f, n in flag_counts.items()]
     chart4.sort(key=lambda d: -d['count'])
 
     # ---- summary / stat tiles ----
-    main_full = [row for row in rows if row['srv.-m'] == main and row['run_cmd'] == 'full']
-    main_full_pass = sum(1 for row in main_full if row['pass'] == 'true')
+    main_full = [row for row in rows if row['model'] == main and row['run'] == 'full']
+    main_full_pass = sum(1 for row in main_full if row['pass'])
     summary = {
         'total_runs': len(rows), 'distinct_tasks': len(pins),
         'total_exercise_names': len(set(row['exercise'] for row in rows)),
         'total_models': len(models_sorted),
-        'overall_pass': sum(1 for row in rows if row['pass'] == 'true'),
-        'overall_fail': sum(1 for row in rows if row['pass'] == 'false'),
+        'overall_pass': sum(1 for row in rows if row['pass']),
+        'overall_fail': sum(1 for row in rows if not row['pass']),
         'total_tasks': len(pins), 'default_tasks': len(default_pins),
         'main_label': short_label(main), 'main_full_pass': main_full_pass, 'main_full_n': len(main_full),
+        'excluded_harness': excluded_harness,
     }
 
     # ---- perf: generation speed + tokens generated, normalized to exercise difficulty ----
     pass_rows = [row for row in rows
-                 if (row['language'], row['exercise']) in pinset and row['pass'] == 'true'
-                 and row['duration'] and float(row['duration']) > 0 and row['completion_tokens']]
+                 if row['task'] in pinset and row['pass']
+                 and row['duration'] and row['duration'] > 0 and row['out_tokens'] is not None]
     by_ex_tokens = defaultdict(list)
     for row in pass_rows:
-        by_ex_tokens[pin_label[(row['language'], row['exercise'])]].append(int(row['completion_tokens']))
+        by_ex_tokens[pin_label[row['task']]].append(row['out_tokens'])
     ex_baseline = {ex: sum(toks) / len(toks) for ex, toks in by_ex_tokens.items()}
 
     points = []
     for row in pass_rows:
-        ex = pin_label[(row['language'], row['exercise'])]
-        tokens = int(row['completion_tokens'])
+        ex = pin_label[row['task']]
+        tokens = row['out_tokens']
         points.append({
-            'model': short_label(row['srv.-m']), 'exercise': ex, 'tokens': tokens,
+            'model': short_label(row['model']), 'exercise': ex, 'tokens': tokens,
             'tokens_norm': round(tokens / ex_baseline[ex], 3),
-            'tokps': round(tokens / float(row['duration']), 2),
-            'duration': round(float(row['duration']), 1),
-            'tries': row['tries_taken'], 'tries_num': int(row['tries_taken']) if row['tries_taken'] else None,
+            'tokps': round(tokens / (row['gen_sec'] or row['duration']), 2),
+            'duration': round(row['duration'], 1),
+            'tries': _s(row['steps']), 'tries_num': row['steps'],
         })
 
     def agg(rows_subset):
@@ -358,8 +860,8 @@ def build_dataset(rows):
         return out
 
     overall = agg(points)
-    by_exercise = {pin_label[(l, e)]: agg([p for p in points if p['exercise'] == pin_label[(l, e)]])
-                   for l, e in pins}
+    by_exercise = {pin_label[t]: agg([p for p in points if p['exercise'] == pin_label[t]])
+                   for t in pins}
     perf = {'matrix_models': matrix_models, 'overall': overall, 'by_exercise': by_exercise,
             'exercise_order': [pin_label[p] for p in pins], 'points': points,
             'ex_baseline': {ex: round(v) for ex, v in ex_baseline.items()}}
@@ -382,20 +884,20 @@ def build_dataset(rows):
     EFF_SCALE, EFF_FAIL_CEIL, EFF_MU_PRIOR_STRENGTH = 2.0, 0.35, 2
     pass_tries_by_pin_model = defaultdict(lambda: defaultdict(list))
     for row in shortlist_rows:
-        if row['pass'] == 'true' and row['tries_taken']:
-            pass_tries_by_pin_model[(row['language'], row['exercise'])][short_label(row['srv.-m'])].append(int(row['tries_taken']))
+        if row['pass'] and row['steps'] is not None:
+            pass_tries_by_pin_model[row['task']][short_label(row['model'])].append(row['steps'])
     pin_model_means = {pin: {m: sum(v) / len(v) for m, v in d.items()}
                        for pin, d in pass_tries_by_pin_model.items()}
     all_means = [x for d in pin_model_means.values() for x in d.values()]
     mu_global = sum(all_means) / len(all_means) if all_means else 2.0
 
     def attempt_efficiency(row):
-        if not row['tries_taken']:
+        if row['steps'] is None:
             return None
-        pin, model, k = (row['language'], row['exercise']), short_label(row['srv.-m']), int(row['tries_taken'])
+        pin, model, k = row['task'], short_label(row['model']), row['steps']
         ref = [x for m, x in pin_model_means.get(pin, {}).items() if m != model]
         mu = shrink_toward_prior(sum(ref) / len(ref) if ref else mu_global, len(ref), mu_global, EFF_MU_PRIOR_STRENGTH)
-        if row['pass'] == 'true':
+        if row['pass']:
             return 0.75 + 0.25 * math.tanh((mu - k) / EFF_SCALE)
         return EFF_FAIL_CEIL * math.exp(-max(0.0, max(k, 1) - mu) / EFF_SCALE)
 
@@ -407,45 +909,51 @@ def build_dataset(rows):
     eff_by_pin_model = defaultdict(lambda: defaultdict(list))
     for row in shortlist_rows:
         if row_eff[id(row)] is not None:
-            eff_by_pin_model[(row['language'], row['exercise'])][short_label(row['srv.-m'])].append(row_eff[id(row)])
+            eff_by_pin_model[row['task']][short_label(row['model'])].append(row_eff[id(row)])
     eff_pin_prior = {}
     for pin, d in eff_by_pin_model.items():
         means = [sum(v) / len(v) for v in d.values()]
         eff_pin_prior[pin] = sum(means) / len(means)
 
     cost_rows = [row for row in rows
-                 if row['duration'] and float(row['duration']) > 0 and row['completion_tokens']]
+                 if row['duration'] and row['duration'] > 0 and row['out_tokens'] is not None]
     cost_points = [{
-        'exercise': pin_label[(row['language'], row['exercise'])],
-        'model': short_label(row['srv.-m']), 'pass': row['pass'] == 'true',
-        'tokens': int(row['completion_tokens']), 'duration': round(float(row['duration']), 1),
-        'tries': row['tries_taken'], 'timestamp': row['timestamp'], 'seed': row['seed'],
+        'exercise': pin_label[row['task']],
+        'model': short_label(row['model']), 'pass': row['pass'],
+        'tokens': row['out_tokens'], 'duration': round(row['duration'], 1),
+        'tries': _s(row['steps']), 'timestamp': row['timestamp'], 'seed': row['seed'],
         'eff': round(row_eff[id(row)], 4) if row_eff[id(row)] is not None else None,
+        'end_reason': row['end_reason'],
+        'gen_sec': round(row['gen_sec'], 1) if row['gen_sec'] else None,
+        'tokens_at_pass': row['tokens_at_pass'],
+        'flags': sorted(row['flags']), 'runner': row['runner'],
+        'think_blocks': row['think_blocks'], 'think_cuts': row['think_cuts'],
     } for row in cost_rows]
     cost_spread = {'points': cost_points}
 
     # ---- usefulness: per-exercise cost / discriminative-power / flakiness / tries-shape ----
     tries_buckets = ['0', '1', '2', '3', '4', '5', '6', '8', '16']
     usefulness_ex = []
-    for lang, ex in pins:
-        label = pin_label[(lang, ex)]
-        ex_rows = [row for row in shortlist_rows if row['language'] == lang and row['exercise'] == ex]
+    for task in pins:
+        variant, lang, ex = task
+        label = pin_label[task]
+        ex_rows = [row for row in shortlist_rows if row['task'] == task]
         if not ex_rows:
             continue
         by_model = defaultdict(list)
         for row in ex_rows:
-            by_model[short_label(row['srv.-m'])].append(row)
+            by_model[short_label(row['model'])].append(row)
         model_pass_rates, model_mean_durations, flakiness_scores = [], [], []
         for m in matrix_models:
             rs = by_model.get(m, [])
             if not rs:
                 continue
-            npass = sum(1 for r_ in rs if r_['pass'] == 'true')
+            npass = sum(1 for r_ in rs if r_['pass'])
             rate = npass / len(rs)
             # Fractional (share of this model's seeds that passed), not a majority-vote
             # 0/1: a model that passes 1 of 3 seeds is partly able, not simply "failed".
             model_pass_rates.append(rate)
-            durs = [float(r_['duration']) for r_ in rs if r_['duration']]
+            durs = [r_['duration'] for r_ in rs if r_['duration'] is not None]
             if durs:
                 model_mean_durations.append(sum(durs) / len(durs))
             if len(rs) > 1:
@@ -463,10 +971,10 @@ def build_dataset(rows):
         flakiness = sum(flakiness_scores) / len(flakiness_scores) if flakiness_scores else None
         hist2 = defaultdict(lambda: {'pass': 0, 'fail': 0})
         for row in ex_rows:
-            t = row['tries_taken']
+            t = _s(row['steps'])
             if not t:
                 continue
-            hist2[t]['pass' if row['pass'] == 'true' else 'fail'] += 1
+            hist2[t]['pass' if row['pass'] else 'fail'] += 1
         tries_hist = [{'tries': b, 'pass': hist2[b]['pass'], 'fail': hist2[b]['fail']}
                       for b in tries_buckets if (hist2[b]['pass'] + hist2[b]['fail']) > 0]
         # What fraction of this task's failures were the harness bailing on a max
@@ -477,8 +985,8 @@ def build_dataset(rows):
         # shouldn't make silently. High timeout_rate is a hint the duration budget
         # itself may be too tight for this task, not necessarily that the model (or the
         # task's discriminative signal) can't be trusted.
-        fail_rows = [row for row in ex_rows if row['pass'] == 'false']
-        timeout_fails = sum(1 for row in fail_rows if row['bailed_on_max_duration'] == 'true')
+        fail_rows = [row for row in ex_rows if not row['pass']]
+        timeout_fails = sum(1 for row in fail_rows if row['timed_out'])
         timeout_rate = round(timeout_fails / len(fail_rows), 3) if fail_rows else None
         # Discriminative power of TRIES (not pass/fail): how much models' average
         # tries-to-pass actually spreads out on this exercise, vs. pass/fail
@@ -490,7 +998,7 @@ def build_dataset(rows):
         # construction, so the clip is what keeps it comparable to the pass/fail number.
         # None (not 0) when fewer than 2 models have a passing run to compare, since
         # there's no spread to measure yet, not "zero spread".
-        tries_means_this = list(pin_model_means.get((lang, ex), {}).values())
+        tries_means_this = list(pin_model_means.get(task, {}).values())
         n_tries_models = len(tries_means_this)
         if n_tries_models >= 2:
             mean_t = sum(tries_means_this) / n_tries_models
@@ -499,9 +1007,10 @@ def build_dataset(rows):
         else:
             tries_discriminative = None
         usefulness_ex.append({
+            '_task': task, 'variant': variant,
             'exercise': ex, 'language': lang, 'label': label, 'n_attempts': len(ex_rows),
             'n_models': len(model_pass_rates), 'models_passed': round(sum(model_pass_rates), 1),
-            'eff_across_models': round(eff_pin_prior.get((lang, ex), eff_global), 4),
+            'eff_across_models': round(eff_pin_prior.get(task, eff_global), 4),
             'pass_rate_across_models': round(p, 3), 'discriminative': round(discriminative, 3),
             'avg_duration': round(avg_duration, 1),
             'flakiness': round(flakiness, 3) if flakiness is not None else None,
@@ -568,9 +1077,33 @@ def build_dataset(rows):
                 d['tries_discriminative'] = round(
                     shrink_toward_prior(d['tries_discriminative'], d['n_tries_models'], td_prior, TRIES_DISCRIMINATIVE_PRIOR_STRENGTH), 3)
 
+    # Recall: how often models recognised the exercise and recalled the upstream
+    # solution or tests (outcomes.py's `recalled_content` flag). A property of the exercise, not the
+    # runner, so it's counted per twin over every variant's attempts, but only Harbor
+    # trajectories can raise it. Instructions that name the source don't raise it
+    # (2026-10-31: 74% recalled with, 81% without), so they count the same. Shrunk toward the cross-exercise rate like the
+    # other per-exercise rates; an exercise with no Harbor attempts gets that prior.
+    RECALL_PRIOR_STRENGTH = 3
+    RECALL_WEIGHT_DISCOUNT = 0.5
+    recall_counts = defaultdict(lambda: [0, 0])
+    for row in shortlist_rows:
+        if row['runner'] != 'harbor':
+            continue
+        f = row['flags']
+        c = recall_counts[row['twin']]
+        c[0] += 'recalled_content' in f
+        c[1] += 1
+    recall_n = sum(n for _, n in recall_counts.values())
+    recall_prior = sum(k for k, _ in recall_counts.values()) / recall_n if recall_n else 0.0
+    for d in usefulness_ex:
+        k, n = recall_counts.get((d['language'], d['exercise']), (0, 0))
+        d['recall_attempts'] = n
+        d['recall_rate'] = round(shrink_toward_prior(k / n if n else recall_prior, n, recall_prior,
+                                                     RECALL_PRIOR_STRENGTH), 3)
+
     # "Quality" composite: how much a task is worth keeping, folded into one number —
-    # rewards discriminative power, penalizes cost (duration) and inconsistency
-    # (flakiness). Duration is min-max normalized across the active exercises first
+    # rewards discriminative power, penalizes cost (duration), inconsistency
+    # (flakiness) and memorisation (recall_rate). Duration is min-max normalized across the active exercises first
     # since it's in seconds while the other two are already 0-1. An exercise with no
     # repeat runs (flakiness == None) is treated as neutral, not penalized — "unproven"
     # isn't the same claim as "inconsistent".
@@ -580,12 +1113,17 @@ def build_dataset(rows):
     for d in usefulness_ex:
         duration_norm = (d['avg_duration'] - dur_min) / dur_span if dur_span else 0
         flakiness_component = d['flakiness'] if d['flakiness'] is not None else 0
-        d['quality'] = round((d['discriminative'] + (1 - duration_norm) + (1 - flakiness_component)) / 3, 3)
+        # recall: a task models reliably recall measures memory, not ability
+        d['quality'] = round((d['discriminative'] + (1 - duration_norm) + (1 - flakiness_component)
+                              + (1 - d['recall_rate'])) / 4, 3)
         # How much this exercise counts toward the chart1 capability score below —
         # discriminative power x reliability, deliberately excluding cost (unlike
         # `quality` above, which also penalizes slow exercises for the heatmap sort;
         # an exercise being slow doesn't make it less informative about capability).
-        d['score_weight'] = round(d['discriminative'] * (1 - flakiness_component), 3)
+        # Recall discounts it by up to half: a reliably recalled task still says
+        # something (recalling correctly is a skill), but less about solving it.
+        d['score_weight'] = round(d['discriminative'] * (1 - flakiness_component)
+                                  * (1 - RECALL_WEIGHT_DISCOUNT * d['recall_rate']), 3)
     usefulness_ex.sort(key=lambda d: -d['discriminative'])
 
     # ---- chart1: capability score per model — replaces a naive pass-rate-over-attempts.
@@ -618,8 +1156,8 @@ def build_dataset(rows):
     # sort call, for the full reasoning (it replaced a floor-only ranking, which was
     # itself the fix for a plain-midpoint ranking; both prior versions and why they
     # weren't quite right are documented there).
-    weight_by_pin = {(d['language'], d['exercise']): d['score_weight'] for d in usefulness_ex}
-    impute_by_pin = {(d['language'], d['exercise']): d['pass_rate_across_models'] for d in usefulness_ex}
+    weight_by_pin = {d['_task']: d['score_weight'] for d in usefulness_ex}
+    impute_by_pin = {d['_task']: d['pass_rate_across_models'] for d in usefulness_ex}
     full_weight = sum(weight_by_pin.values())
     # Roughly matches the implicit pseudo-observation count (z^2 ~= 3.84) a Wilson
     # interval would use — same amount of built-in skepticism toward small samples,
@@ -638,8 +1176,8 @@ def build_dataset(rows):
     for m in models_sorted:
         sub_by_pin = defaultdict(list)
         for row in shortlist_rows:
-            if row['srv.-m'] == m:
-                sub_by_pin[(row['language'], row['exercise'])].append(row)
+            if row['model'] == m:
+                sub_by_pin[row['task']].append(row)
         if not sub_by_pin:
             continue
 
@@ -648,23 +1186,28 @@ def build_dataset(rows):
         tested_est = {}
         tested = exercises_passed = exercises_failed = exercises_mixed = 0
         bias_num = bias_weight = 0.0
-        for lang, ex in pins:
-            rs = sub_by_pin.get((lang, ex))
+        for task in pins:
+            rs = sub_by_pin.get(task)
             if not rs:
                 continue
             tested += 1
-            w = weight_by_pin[(lang, ex)]
-            k = sum(1 for r in rs if r['pass'] == 'true')
-            n = len(rs)
-            est = shrink_toward_prior(k / n, n, impute_by_pin[(lang, ex)], MODEL_PIN_PRIOR_STRENGTH)
-            tested_est[(lang, ex)] = est
-            if k == n:
+            w = weight_by_pin[task]
+            # trust-weighted (outcomes.TRUST): a suspect attempt (downloaded / recalled
+            # the answer) adds little evidence, so the estimate leans on the pin's
+            # typical rate instead; the raw pass/fail counts below still count it
+            k = sum(r['trust'] for r in rs if r['pass'])
+            n = sum(r['trust'] for r in rs)
+            est = shrink_toward_prior(k / n, n, impute_by_pin[task], MODEL_PIN_PRIOR_STRENGTH) if n else impute_by_pin[task]
+            k_raw = sum(1 for r in rs if r['pass'])
+            tested_est[task] = est
+            if k_raw == len(rs):
                 exercises_passed += 1
-            elif k == 0:
+            elif k_raw == 0:
                 exercises_failed += 1
             else:
                 exercises_mixed += 1
-            bias_num += w * (est - impute_by_pin[(lang, ex)])
+            w *= n / len(rs)    # untrusted pins say little about the model's bias either
+            bias_num += w * (est - impute_by_pin[task])
             bias_weight += w
         raw_bias = bias_num / bias_weight if bias_weight else 0.0
         bias = shrink_toward_prior(raw_bias, tested, 0.0, BIAS_PRIOR_STRENGTH)
@@ -674,16 +1217,16 @@ def build_dataset(rows):
         # projected (untested -> pool average adjusted by this model's own shrunk bias,
         # clamped to a valid probability) across every pin.
         num_expected = num_worst = num_best = num_projected = 0.0
-        for lang, ex in pins:
-            w = weight_by_pin[(lang, ex)]
-            if (lang, ex) in tested_est:
-                est = tested_est[(lang, ex)]
+        for task in pins:
+            w = weight_by_pin[task]
+            if task in tested_est:
+                est = tested_est[task]
                 num_expected += w * est
                 num_worst += w * est
                 num_best += w * est
                 num_projected += w * est
             else:
-                pool_avg = impute_by_pin[(lang, ex)]
+                pool_avg = impute_by_pin[task]
                 num_expected += w * pool_avg
                 num_best += w * 1.0
                 num_projected += w * min(1.0, max(0.0, pool_avg + bias))
@@ -691,8 +1234,8 @@ def build_dataset(rows):
         floor = num_worst / full_weight if full_weight else 0
         ceiling = num_best / full_weight if full_weight else 0
         projected = num_projected / full_weight if full_weight else 0
-        pass_tries = [int(row['tries_taken']) for row in shortlist_rows
-                      if row['srv.-m'] == m and row['pass'] == 'true' and row['tries_taken']]
+        pass_tries = [row['steps'] for row in shortlist_rows
+                      if row['model'] == m and row['pass'] and row['steps'] is not None]
         avg_tries = round(sum(pass_tries) / len(pass_tries), 2) if pass_tries else None
         chart1.append({
             'label': short_label(m), 'tested': tested, 'total_pins': len(pins),
@@ -729,28 +1272,31 @@ def build_dataset(rows):
     label_to_path = {short_label(m): m for m in models_sorted}
     models_for_matrix = [label_to_path[lbl] for lbl in matrix_models]
 
-    quality_by_pin = {(d['language'], d['exercise']): d['quality'] for d in usefulness_ex}
+    quality_by_pin = {d['_task']: d['quality'] for d in usefulness_ex}
     pins_by_quality = sorted(pins, key=lambda p: -quality_by_pin.get(p, -1))
 
     matrix = []
-    for lang, ex in pins_by_quality:
-        label = pin_label[(lang, ex)]
+    for task in pins_by_quality:
+        variant, lang, ex = task
+        label = pin_label[task]
         cells = []
         for m in models_for_matrix:
-            sub = [row for row in shortlist_rows
-                   if row['srv.-m'] == m and row['exercise'] == ex and row['language'] == lang]
+            sub = [row for row in shortlist_rows if row['model'] == m and row['task'] == task]
             if not sub:
                 cells.append(None)
                 continue
-            npass = sum(1 for row in sub if row['pass'] == 'true')
-            pass_tries = [int(row['tries_taken']) for row in sub if row['pass'] == 'true' and row['tries_taken']]
+            npass = sum(1 for row in sub if row['pass'])
+            pass_tries = [row['steps'] for row in sub if row['pass'] and row['steps'] is not None]
             avg_tries = round(sum(pass_tries) / len(pass_tries), 2) if pass_tries else None
-            timeouts = sum(1 for row in sub if row['bailed_on_max_duration'] == 'true')
-            ctx_runs = sum(1 for row in sub if int(row['exhausted_context_windows'] or 0) > 0)
+            timeouts = sum(1 for row in sub if row['timed_out'])
+            ctx_runs = sum(1 for row in sub if row['ctx_exhausted'] > 0)
             cells.append({'pass': npass, 'total': len(sub), 'rate': npass / len(sub), 'avg_tries': avg_tries,
                            'timeouts': timeouts, 'ctx_runs': ctx_runs})
-        matrix.append({'exercise': ex, 'language': lang, 'label': label,
-                        'quality': quality_by_pin[(lang, ex)], 'cells': cells})
+        matrix.append({'exercise': ex, 'language': lang, 'variant': variant, 'label': label,
+                        'quality': quality_by_pin[task], 'cells': cells})
+
+    for d in usefulness_ex:
+        del d['_task']
 
     perf['matrix_models'] = matrix_models
     perf['exercise_order'] = [pin_label[p] for p in pins_by_quality]
@@ -758,12 +1304,19 @@ def build_dataset(rows):
     return {
         'summary': summary, 'eff_global': round(eff_global, 4), 'chart1': chart1, 'matrix_models': matrix_models, 'matrix': matrix,
         'model_quant': model_quant, 'chart3': chart3, 'chart4': chart4,
+        # end reason -> pass / censored / fail / excluded (outcomes.py), for the budget curves
+        'end_reason_groups': {k: g for k, (g, _) in outcomes.END_REASONS.items()},
+        'end_reason_labels': {k: label for k, (_, label) in outcomes.END_REASONS.items()},
+        'flag_labels': outcomes.FLAGS,
+        'flag_runners': outcomes.FLAG_RUNNERS,
+        'low_trust': LOW_TRUST, 'low_trust_task_share': LOW_TRUST_TASK_SHARE,
         'fail_n': len(fail_rows_all), 'detail': detail,
         'perf': perf, 'usefulness': {'exercises': usefulness_ex}, 'cost_spread': cost_spread,
-        # Labels for the exercise filter's initial selection — see PINS_DEFAULT's
-        # comment: it's a seed for the UI now, not a computation scope.
+        # Labels for the exercise filter's initial selection (DEFAULT_TOP_N).
         'default_exercises': [pin_label[p] for p in default_pins],
-        'test_lists': load_test_lists(pin_label),
+        # each variant also offered as a list: the runner/suite filter
+        'test_lists': [{'name': f'Runner: {v}', 'exercises': [pin_label[t] for t in pins if t[0] == v], 'missing': 0}
+                       for v in sorted({t[0] for t in pins})] + load_test_lists(pin_label),
     }
 
 
@@ -779,11 +1332,12 @@ def load_test_lists(pin_label):
             parts = line.split('#')[0].split()
             if len(parts) < 2:
                 continue
-            key = (parts[0], parts[1])
-            if key in pin_label:
-                if pin_label[key] not in labels:
-                    labels.append(pin_label[key])
-            else:
+            # list rows name an exercise, not a runner: every variant of it is selected
+            hits = [lbl for t, lbl in pin_label.items() if t[1:] == (parts[0], parts[1])]
+            for lbl in hits:
+                if lbl not in labels:
+                    labels.append(lbl)
+            if not hits:
                 missing += 1
         if labels:
             lists.append({'name': path[:-4], 'exercises': labels, 'missing': missing})
@@ -791,15 +1345,18 @@ def load_test_lists(pin_label):
 
 
 def main():
-    rows = load_rows()
-    data = build_dataset(rows)
+    rows, excluded, recent = load_attempts()
+    data = build_dataset(rows, excluded)
+    data['recent_runs'] = recent
+    data['model_settings'] = model_settings(rows)
+    data['settings_effects'] = settings_effects(rows)
 
     template = open(TEMPLATE_PATH).read()
     assert template.count('__DATA__') == 1, 'template must contain exactly one __DATA__ placeholder'
     html = template.replace('__DATA__', json.dumps(data))
     open(OUTPUT_PATH, 'w').write(html)
-    print(f'wrote {OUTPUT_PATH} ({len(html):,} bytes) from {len(rows)} rows, '
-          f'{data["summary"]["total_tasks"]} tasks total ({data["summary"]["default_tasks"]}/{len(PINS_DEFAULT)} default-shown)')
+    print(f'wrote {OUTPUT_PATH} ({len(html):,} bytes) from {len(rows)} attempts ({excluded} harness failures excluded), '
+          f'{data["summary"]["total_tasks"]} tasks total ({data["summary"]["default_tasks"]} default-shown)')
 
 
 if __name__ == '__main__':

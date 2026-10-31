@@ -6,12 +6,12 @@ javascript     scale-generator           4  600   # 2-4-F spread
 python         sgf-parsing               5  1100  # 2-3 on Qwen, fails on opus?, barely Bonsai
 go             simple-linked-list        4  400   # 1-4, quick
 #java            word-search              6  500   # 8!
-java            full-word-search              9  500   # 8!
+#java            full-word-search              9  500   # 8!
 python          pov                      5  500
 javascript      zebra-puzzle             5  800
 
 #javascript     grade-school              3 
-go             full-paasio               4  1800  
+#go             full-paasio               4  1800  
 go             bowling                   6  1200
 
 

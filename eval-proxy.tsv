@@ -1,0 +1,2 @@
+timestamp	session	path	budget	max_tokens_sent	output_tokens	total_output	stop_reason	effort	reasoning_budget	reasoning_tokens	answer_tokens	budget_cutoff	note
+2026-10-27T23:52:52.647598+00:00	smoke/python/affine-cipher	/v1/chat/completions	0	16000	0	0							
