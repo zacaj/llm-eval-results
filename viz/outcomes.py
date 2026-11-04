@@ -171,7 +171,7 @@ def classify_aider(row: dict) -> tuple[str, set[str]]:
     return "exhausted", flags
 
 
-def aider_attempts(path: Path = HERE / "eval-results-per-test.tsv"):
+def aider_attempts(path: Path = HERE.parent / "aider-results-per-test.tsv"):
     for r in csv.DictReader(path.open(), delimiter="\t"):
         end, flags = classify_aider(r)
         yield r, end, flags
@@ -247,7 +247,7 @@ def classify_harbor(row: dict) -> tuple[str, set[str]]:
     return "done_wrong", flags
 
 
-def harbor_attempts(path: Path = HERE / "harbor-trials.tsv"):
+def harbor_attempts(path: Path = HERE.parent / "harbor-trials.tsv"):
     for r in csv.DictReader(path.open(), delimiter="\t"):
         end, flags = classify_harbor(r)
         yield r, end, flags

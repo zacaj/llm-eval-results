@@ -9,7 +9,7 @@ aider-polyglot benchmark. No server, no build step — open the HTML file in a b
 python3 generate_viz_data.py
 ```
 
-Reads `eval-results-per-test.tsv`, writes `eval-viz.html`. Re-run after any change to the
+Reads `../aider-results-per-test.tsv` + `../harbor-trials.tsv`, writes `eval-viz.html`. Re-run after any change to the
 tsv (new eval runs appended, bad rows deleted). `eval-viz.html` is 100% derived output —
 never hand-edit it; edit `eval-viz-template.html` (layout/charts) or
 `generate_viz_data.py` (data) instead, then regenerate.
@@ -19,7 +19,7 @@ No dependencies beyond the Python 3 standard library (`csv`, `json`, `collection
 ## How it's built
 
 ```
-eval-results-per-test.tsv  ─┐
+aider-results-per-test.tsv  ─┐
                              ├─▶  generate_viz_data.py  ─▶  eval-viz.html
 eval-viz-template.html     ─┘
 ```
@@ -39,7 +39,7 @@ change made only to `eval-viz.html` will be lost the next time the script runs.
 
 ## The dataset
 
-`eval-results-per-test.tsv` is one row per aider-polyglot test attempt, across several model
+`aider-results-per-test.tsv` is one row per aider-polyglot test attempt, across several model
 variants and (mostly) 6 language tracks. Key fact about this benchmark: **exercise names
 repeat across language tracks** — `bowling` is a distinct task in Python, Go, Java, etc. The
 "100 exercise names" in the data actually cover 225 distinct `(language, exercise)` tasks.

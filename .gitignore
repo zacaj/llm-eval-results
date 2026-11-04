@@ -1,9 +1,3 @@
-fromfile-*/
-full/
-OLD/
-polyglot/
-random/
-quick/
-smoke/
-missing/
-.exercise-lists/
+*.lock
+__pycache__/
+tmp/

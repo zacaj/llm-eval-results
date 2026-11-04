@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-Regenerates eval-viz.html from eval-results-per-test.tsv.
+Regenerates eval-viz.html from aider-results-per-test.tsv.
 
 Usage:
     python3 generate_viz_data.py
 
-Reads eval-results-per-test.tsv + eval-viz-template.html, writes eval-viz.html.
+Reads aider-results-per-test.tsv + eval-viz-template.html, writes eval-viz.html.
 
 Each runner's rows go through an adapter (aider_attempt / harbor_attempt) into common ATTEMPT
 records (see attempt fields there); build_dataset only reads those, never raw TSV
@@ -26,8 +26,8 @@ from datetime import datetime
 
 import outcomes
 
-TSV_PATH = 'eval-results-per-test.tsv'
-HARBOR_TSV_PATH = 'harbor-trials.tsv'  # harbor/collect.py
+TSV_PATH = '../aider-results-per-test.tsv'  # run from viz/ (run.sh / collect.py do)
+HARBOR_TSV_PATH = '../harbor-trials.tsv'  # harbor/collect.py
 TEMPLATE_PATH = 'eval-viz-template.html'
 OUTPUT_PATH = 'eval-viz.html'
 
@@ -1299,14 +1299,14 @@ def build_dataset(rows, excluded_harness=0):
 
 
 def load_test_lists(pin_label):
-    # Every *.txt beside the tsv that looks like a test list: '#' comments, then
+    # Every reusable list in the eval repo's lists/ (not lists/tmp/) that looks like a test list: '#' comments, then
     # '<language> <exercise> [max_tries] [max_duration]' whitespace-separated. Offered in
     # the filter panel as quick selections; tests no model has run yet are dropped, and
     # a file with none left over is skipped entirely.
     lists = []
-    # (harbor/lists/*.txt too: same format, and TB2 rows are just '<task> [calls] [max_dur]')
+    # (TB2 rows are just '<task> [calls] [max_dur]')
     seen = set()
-    for path in sorted(glob.glob('*.txt')) + sorted(glob.glob('../harbor/lists/*.txt')):
+    for path in sorted(glob.glob('../../lists/*.txt')):
         if os.path.basename(path) in seen:
             continue
         seen.add(os.path.basename(path))
