@@ -17,10 +17,11 @@ there is no other cache; eval-viz.html is fully derived and safe to overwrite.
 import csv
 import glob
 import math
+import os
 import json
 import re
 import sys
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import datetime
 
 import outcomes
@@ -132,7 +133,7 @@ def short_label(srv_m_path):
 # every current variant's name carries its own quant tag, so this stays correct as
 # models are added without another table to maintain. Charts fall back to "other"
 # (rendered neutral gray) for anything that doesn't match, rather than guessing.
-QUANT_PATTERN = re.compile(r'IQ3_XXS|IQ3_S|IQ4_XS|Q4_K_XL|IQ1_M|TQ2_0')
+QUANT_PATTERN = re.compile(r'IQ3_XXS|IQ3_S|IQ4_XS|Q4_K_XL|Q4_K_M|IQ1_M|TQ2_0')
 
 
 def quant_of(srv_m_path):
@@ -423,9 +424,9 @@ def model_settings(attempts):
     return {m: {k: sorted(d.get(k, {'(unset)'})) for k in sorted(keys)} for m, d in vals.items()}
 
 
-# ---- settings effects: the same gguf run at different settings, compared stat by stat ----
-# Each stat: (key, label, kind, per-attempt value). 'rate' stats compare per-task means as
-# a difference in points; 'ratio' stats as the geometric mean of per-task B/A ratios.
+# ---- settings effects / standouts: per-attempt stat values for the page's tables ----
+# Each stat: (key, label, kind, better, per-attempt value). 'rate' stats are compared as a
+# difference in points; 'ratio' stats as a typical B/A ratio.
 def _px(a, col):
     v = a['raw'].get(col, '')
     return float(v) if v not in ('', None) else None
@@ -447,10 +448,25 @@ EFFECT_STATS = [
     ('requests', 'requests', 'ratio', 'down', lambda a: _px(a, 'px_requests') or None),
     ('think_cut', 'thinking cut-off rate', 'rate', 'down',
      lambda a: a['think_cuts'] / a['think_blocks'] if a['think_blocks'] else None),
+    # reasoning style / degeneration (Harbor: Claude Code logs keep the thinking text)
+    ('think_code', 'share of thinking that is code (Harbor)', 'rate', None,
+     lambda a: _px(a, 'think_code_chars') / _px(a, 'think_chars') if _px(a, 'think_chars') else None),
+    ('copied', 'big writes copied from thinking (Harbor)', 'rate', None,
+     lambda a: _px(a, 'writes_from_think') / _px(a, 'big_writes') if _px(a, 'big_writes') else None),
+    ('spill', 'attempts where thinking spilled into the answer (Harbor)', 'rate', 'down',
+     lambda a: float('think_spill' in a['flags']) if a['runner'] == 'harbor' else None),
+    ('looped', 'attempts that looped (Harbor)', 'rate', 'down',
+     lambda a: float('looped' in a['flags']) if a['runner'] == 'harbor' else None),
+    ('loop_stuck', 'attempts with a loop that never recovered (Harbor)', 'rate', 'down',
+     lambda a: float('loop_stuck' in a['flags']) if a['runner'] == 'harbor' else None),
     # glitch / quality counters (None where a runner doesn't record them)
     ('tests_frac', 'tests passed (fraction, Harbor)', 'rate', 'up',
      lambda a: _px(a, 'tests_frac_adj') if _px(a, 'tests_frac_adj') is not None else _px(a, 'tests_frac')),
     ('malformed', 'attempts with malformed calls / edits', 'rate', 'down', lambda a: float('malformed' in a['flags'])),
+    # one number for all degeneration signs above, weighted by severity (outcomes.GLITCH_WEIGHTS);
+    # test results don't enter it. Aider can't see loops / spills, so compare within a runner.
+    ('stability', 'stability: 1 - severity-weighted glitches per attempt', 'rate', 'up',
+     lambda a: None if a['end_reason'] == 'harness' else 1 - outcomes.instability(a['flags'], a['end_reason'])),
     ('tool_err', 'tool calls that errored (Harbor)', 'rate', 'down',
      lambda a: _px(a, 'tool_errors') / _px(a, 'tool_calls') if _px(a, 'tool_calls') else None),
     ('edit_err', 'edits that failed (Harbor)', 'rate', 'down',
@@ -460,163 +476,120 @@ EFFECT_STATS = [
     ('syntax', 'attempts with syntax / lint errors (aider)', 'rate', 'down',
      lambda a: float(bool(_px(a, 'syntax_errors') or _px(a, 'indentation_errors') or 'lint' in a['flags']))
      if a['runner'] == 'aider' else None),
+    # recall / contamination (outcomes.py flags): lower = the result says more about the
+    # model's own ability. Harbor detects them from the trajectory; aider only has the
+    # inferred flag (the same model recalled this exercise in Harbor).
+    ('knows_src', 'named the exercise source itself (Exercism / its specs)', 'rate', 'down',
+     lambda a: float('knows_source' in a['flags']) if a['runner'] == 'harbor' else None),
+    ('recalled', 'recalled the upstream solution / tests', 'rate', 'down',
+     lambda a: float(bool({'recalled_content', 'recalled_inferred'} & a['flags']))),
+    ('fetched', 'fetched upstream files / outside URLs', 'rate', 'down',
+     lambda a: float(bool({'fetched_source', 'internet'} & a['flags'])) if a['runner'] == 'harbor' else None),
     ('reason_req', 'reasoning tok / request', 'ratio', None, lambda a: _per_req(a, 'px_reasoning_tokens') or None),
     ('answer_req', 'answer tok / request', 'ratio', None, lambda a: _per_req(a, 'px_answer_tokens') or None),
 ]
-# "big": a difference worth pointing out, if the bootstrap interval also excludes zero
-EFFECT_BIG = {'rate': 0.10, 'ratio': 0.25}
-# a rate stat's natural range: the change that counts as a full-size effect (thresholds
-# scale with it). Cut-off rates live in 0-10%, so 25 points would make every change tiny.
-EFFECT_RATE_SPAN = {'think_cut': 0.05, 'tool_err': 0.10, 'edit_err': 0.10}
-EFFECT_MIN_TASKS = 3
-EFFECT_LEVELS = (50, 60, 70, 80, 90, 95, 99)  # confidence levels exported per stat (lo, hi) for the page's selector
-EFFORT_ORDER = {'none': 0, 'low': 1, 'medium': 2, 'high': 3, 'xhigh': 4}
+# a rate stat's natural range: the change that counts as a full-size effect (the page's
+# thresholds scale with it). Cut-off rates live in 0-10%, so 25 points would make every
+# change tiny.
+EFFECT_RATE_SPAN = {'think_cut': 0.05, 'stability': 0.10, 'tool_err': 0.10, 'edit_err': 0.10}
+EFFECT_SETTING_KEYS = ('effort', 'think', 'temp', 'top_p', 'top_k', 'min_p', 'dry')
+# Name tokens that make poor groups: quant fragments (the quant itself is a group via
+# QUANT_PATTERN), and MTP (not named consistently: many MTP files don't say so).
+_TOKEN_SKIP = {'gguf', 'of', 'ud', 'q8', 'q4', 'k', 'xl', 'xs', 'xxs', 's', 'm', 'iq3', 'iq4', 'iq1', 'iq2', 'tq2', 'tq1', 'pq2',
+               'mtp',
+               # uploader / distill tags that mostly overlap other groups
+               'claude', 'distilled', 'zacaj', 'isnta', 'daslab'}
+# multi-part names that are one thing: matched first and kept whole (so 'Flash-Next' is one
+# group, not 'Flash' and 'Next')
+_GROUP_PHRASES = ('Flash-Next',)
+# tokens that name the same thing (some files say '35B', some '35B-A3B'): one group
+# groups naming any of these tokens are left out of the filter panel
+_HIDDEN_GROUP_TOKENS = {'RSI'}
+_TOKEN_ALIAS = {'35B': '35B-A3B', 'A3B': '35B-A3B'}
 
 
-def _setting_order(k, v):
-    if k == 'effort':
-        return (0, EFFORT_ORDER.get(v, 9), v)
-    try:
-        return (0, float(v.rstrip('k')), v)
-    except ValueError:
-        return (1, 0, v)
-
-
-def _effect_stats(task_pairs, rng, boots):
-    """task_pairs: [(A attempts, B attempts)] per matched task -> per-stat comparison."""
-    stats = []
-    for key, label, kind, better, fn in EFFECT_STATS:
-        pairs = []
-        for A, B in task_pairs:
-            va = [x for x in map(fn, A) if x is not None]
-            vb = [x for x in map(fn, B) if x is not None]
-            if va and vb:
-                pairs.append((sum(va) / len(va), sum(vb) / len(vb)))
-        if len(pairs) < EFFECT_MIN_TASKS:
-            continue
-        diffs = [b - a for a, b in pairs] if kind == 'rate' else [math.log(b / a) for a, b in pairs]
-        est = sum(diffs) / len(diffs)
-        bs = sorted(sum(rng.choice(diffs) for _ in diffs) / len(diffs) for _ in range(boots))
-        # two-sided intervals at each confidence level the page can switch between
-        back = (lambda x: math.exp(x) - 1) if kind == 'ratio' else (lambda x: x)
-        ci = {str(lv): [round(back(bs[int((1 - lv / 100) / 2 * boots)]), 4),
-                        round(back(bs[int((1 + lv / 100) / 2 * boots) - 1]), 4)] for lv in EFFECT_LEVELS}
-        lo, hi = bs[int(0.05 * boots)], bs[int(0.95 * boots) - 1]
-        if kind == 'ratio':
-            est, lo, hi = (math.exp(x) - 1 for x in (est, lo, hi))
-        sig = lo > 0 or hi < 0
-        stats.append({
-            'key': key, 'label': label, 'kind': kind, 'better': better, 'n': len(pairs),
-            'a': round(sum(p[0] for p in pairs) / len(pairs), 4),
-            'b': round(sum(p[1] for p in pairs) / len(pairs), 4),
-            'delta': round(est, 4), 'lo': round(lo, 4), 'hi': round(hi, 4), 'ci': ci,
-            'span': EFFECT_RATE_SPAN.get(key, 0.25) if kind == 'rate' else None,
-            'sig': sig, 'big': sig and abs(est) >= (EFFECT_BIG['rate'] / 0.25 * EFFECT_RATE_SPAN.get(key, 0.25)
-                                                    if kind == 'rate' else EFFECT_BIG[kind]),
-        })
-    return stats
-
-
-RUNNER_ORDER = {'aider': 0, 'harbor': 1, 'harbor-tc': 2}
-
-
-def settings_effects(attempts, boots=1000):
-    """Per gguf, each settings change compared on the tasks both sides ran: per-task means
-    (a task run 3x doesn't outweigh one run once), with a 90% bootstrap interval over
-    tasks. A combo is the attempt's own settings (raw '_settings'), not its model key,
-    which hides the usual combo's values. Every pair of combos differing the same way
-    (e.g. effort low->xhigh at temp 0.6 and again at temp 0.8, or in aider and in Harbor)
-    is one comparison, pooled over all their matched tasks, so a model appears once per
-    change. Pairs differing in several settings are confounded and flagged.
-    Also one 'runner' comparison per gguf and pair of runners, matched on (language,
-    exercise) with all settings pooled: runs on different harnesses rarely share settings,
-    so these are always confounded (also_differs lists the settings whose values differ)."""
-    import random
-    rng = random.Random(0)
-    by_combo = defaultdict(lambda: defaultdict(list))  # (gguf, combo) -> task -> attempts
-    by_runner = defaultdict(lambda: defaultdict(list))  # (gguf, variant) -> twin -> attempts
-    for a in attempts:
-        if a['superseded']:
-            continue
-        gguf = a['model'].split('@')[0]
-        combo = tuple(sorted((a['raw'].get('_settings') or {}).items()))
-        by_combo[(gguf, combo)][a['task']].append(a)
-        by_runner[(gguf, a['variant'])][a['twin']].append(a)
-    keys = sorted(by_combo)
-    changes = defaultdict(list)  # (gguf, axes, a vals, b vals) -> [(A, B, shared, d1, d2)]
-    for i, (g1, c1) in enumerate(keys):
-        for g2, c2 in keys[i + 1:]:
-            if g1 != g2:
-                continue
-            d1, d2 = dict(c1), dict(c2)
-            # a setting recorded on only one side is unknown, never a difference
-            axes = tuple(sorted(k for k in d1.keys() & d2.keys() if d1[k] != d2[k]))
-            if not axes:
-                continue
-            shared = sorted(by_combo[(g1, c1)].keys() & by_combo[(g2, c2)].keys())
-            if not shared:
-                continue
-            # orient so A is the "lower" value of the first differing setting (new names:
-            # c1/d1 belong to the outer loop and must not be swapped in place)
-            ca, cb, da, db = c1, c2, d1, d2
-            if _setting_order(axes[0], db[axes[0]]) < _setting_order(axes[0], da[axes[0]]):
-                ca, cb, da, db = cb, ca, db, da
-            key = (g1, axes, tuple(da[k] for k in axes), tuple(db[k] for k in axes))
-            changes[key].append((by_combo[(g1, ca)], by_combo[(g1, cb)], shared, da, db))
+def model_groups(ggufs):
+    """Groups of ggufs sharing a name token: a family ('Gyro', 'Swift', 'Qwen3.8', '27B'),
+    a quant ('IQ1_M') or a trait ('Distilled'). Tokens on 2+ files but not nearly all;
+    identical memberships merged under their shortest names. Names split on - _ and
+    space, not '.', so versions like 'Qwen3.6' stay whole."""
+    tok, quants = defaultdict(set), set()
+    for m in ggufs:
+        base = _SHARD_RE.sub('', m).removesuffix('.gguf')
+        for q in QUANT_PATTERN.findall(base):
+            tok[q].add(m)
+            quants.add(q)
+        for ph in _GROUP_PHRASES:
+            if ph in base:
+                tok[ph].add(m)
+                base = base.replace(ph, ' ')
+        for t_ in re.split(r'[-_ ]+', base):
+            # a leading digit is a version fragment ('4.7'), unless it's a size ('27B')
+            numeric = t_[0].isdigit() and not re.fullmatch(r'\d+(\.\d+)?B', t_)
+            if len(t_) >= 2 and t_.lower() not in _TOKEN_SKIP and not numeric and t_ not in quants:
+                tok[_TOKEN_ALIAS.get(t_, t_)].add(m)
+    groups = {}
+    for t_, ms in tok.items():
+        # a quant gets a group even with one file: the mask is how you pick it
+        if (1 if t_ in quants else 2) <= len(ms) <= len(ggufs) - 2:
+            groups.setdefault(frozenset(ms), []).append(t_)
     out = []
-    for (gguf, axes, va, vb), subs in changes.items():
-        task_pairs = [(A[t], B[t]) for A, B, shared, _, _ in subs for t in shared]
-        if len(task_pairs) < EFFECT_MIN_TASKS:
+    for ms, names in groups.items():
+        names = sorted(names, key=len)
+        if _HIDDEN_GROUP_TOKENS & set(names):
             continue
-        stats = _effect_stats(task_pairs, rng, boots)
-        if not stats:
-            continue
-        # settings the same on both sides of every merged pair
-        fixed = None
-        for _, _, _, d1, d2 in subs:
-            f = {k: v for k, v in d1.items() if k not in axes and d2.get(k) == v}
-            fixed = f if fixed is None else {k: v for k, v in fixed.items() if f.get(k) == v}
-        out.append({
-            'quant': quant_of(gguf), 'model': short_label(gguf), 'axes': list(axes),
-            'a': dict(zip(axes, va)), 'b': dict(zip(axes, vb)), 'fixed': fixed or {},
-            'tasks': len(task_pairs), 'runners': sorted({t[0] for _, _, sh, _, _ in subs for t in sh}),
-            'attempts_a': sum(len(x) for x, _ in task_pairs), 'attempts_b': sum(len(y) for _, y in task_pairs),
-            'big': sum(s['big'] for s in stats), 'sig': sum(s['sig'] for s in stats),
-            'stats': stats,
-        })
-    rkeys = sorted(by_runner, key=lambda k: (k[0], RUNNER_ORDER.get(k[1], 9)))
-    for i, (g1, v1) in enumerate(rkeys):
-        for g2, v2 in rkeys[i + 1:]:
-            if g1 != g2:
-                continue
-            A, B = by_runner[(g1, v1)], by_runner[(g1, v2)]
-            shared = sorted(A.keys() & B.keys())
-            if len(shared) < EFFECT_MIN_TASKS:
-                continue
-            stats = _effect_stats([(A[t], B[t]) for t in shared], rng, boots)
-            if not stats:
-                continue
-            vals = lambda side: {k: {v for t in shared for x in side[t]
-                                     for k2, v in (x['raw'].get('_settings') or {}).items() if k2 == k}
-                                 for k in EFFECT_SETTING_KEYS}
-            sa, sb = vals(A), vals(B)
-            also = sorted(k for k in EFFECT_SETTING_KEYS if sa[k] and sb[k] and sa[k] != sb[k])
-            out.append({
-                'quant': quant_of(g1), 'model': short_label(g1), 'axes': ['runner'], 'a': {'runner': v1}, 'b': {'runner': v2},
-                'fixed': {}, 'also_differs': also,
-                'tasks': len(shared), 'runners': [v1, v2],
-                'attempts_a': sum(len(A[t]) for t in shared), 'attempts_b': sum(len(B[t]) for t in shared),
-                'big': sum(s['big'] for s in stats), 'sig': sum(s['sig'] for s in stats),
-                'stats': stats,
-            })
-    out.sort(key=lambda c: (-c['big'], len(c['axes']) > 1, -c['sig'], -c['tasks']))
+        q = next((n for n in names if n in quants), None)
+        out.append({'label': ' / '.join(names[:3]), 'members': sorted(short_label(m) for m in ms),
+                    **({'quant': q} if q else {})})
     return out
 
 
-EFFECT_SETTING_KEYS = ('effort', 'think', 'temp', 'top_p', 'top_k', 'min_p', 'dry')
+def fx_export(attempts):
+    """Per-attempt records for the page's settings-effects and standouts tables, which it
+    computes itself from whatever passes the filter panel (pairing, pooling, intervals:
+    see fxCompute in the template). Every stat's per-attempt value is computed here
+    (EFFECT_STATS), so the page needs no raw columns. Settings combos are deduplicated."""
+    combos, combo_idx, recs = [], {}, []
+    for a in attempts:
+        st = tuple(sorted((a['raw'].get('_settings') or {}).items()))
+        if st not in combo_idx:
+            combo_idx[st] = len(combos)
+            combos.append(dict(st))
+        gguf = a['model'].split('@')[0]
+        x = []
+        for key, label, kind, better, fn in EFFECT_STATS:
+            v = fn(a)
+            x.append(None if v is None else round(v, 4))
+        recs.append({'m': short_label(a['model']), 'g': short_label(gguf), 'q': quant_of(gguf), 'c': combo_idx[st],
+                     't': task_label(a['task']), 'v': a['variant'], 'l': a['language'], 'w': f"{a['language']}/{a['exercise']}",
+                     's': a['seed'], 'ts': a['timestamp'], 'x': x})
+    ggufs = sorted({a['model'].split('@')[0] for a in attempts})
+    return {
+        'stats': [{'key': k, 'label': lb, 'kind': kd, 'better': bt,
+                   'span': EFFECT_RATE_SPAN.get(k, 0.25) if kd == 'rate' else None} for k, lb, kd, bt, _ in EFFECT_STATS],
+        'combos': combos, 'attempts': recs, 'model_groups': model_groups(ggufs),
+        'setting_keys': list(EFFECT_SETTING_KEYS),
+    }
 
 
 RECENT_RUNS = 8
+# raw TSV columns summed over a recent run's attempts (label, column), per runner
+RECENT_COUNTS = {
+    'aider': [('malformed responses', 'num_malformed_responses'), ('edit-format retries', 'hist_edit_format'),
+              ('syntax errors', 'syntax_errors'), ('indentation errors', 'indentation_errors'),
+              ('lint retries', 'hist_lint'), ('wrong-file edits', 'hist_wrong_file'),
+              ('error outputs', 'error_outputs'), ('test timeouts', 'test_timeouts'),
+              ('lazy comments', 'lazy_comments'), ('context exhaustions', 'exhausted_context_windows'),
+              ('output-limit hits', 'hist_output_limit'), ('server errors', 'hist_server_errors')],
+    'harbor': [('tool calls', 'tool_calls'), ('tool errors', 'tool_errors'), ('malformed calls', 'malformed_calls'),
+               ('edits', 'edits'), ('edit errors', 'edit_errors'), ('test runs', 'test_runs'),
+               ('builds', 'build_runs'), ('failed builds', 'build_fail_runs'),
+               ('thinking blocks', 'thinking_blocks'), ('thinking cut off', 'thinking_cutoffs'),
+               ('big writes', 'big_writes'), ('writes copied from thinking', 'writes_from_think'),
+               ('thinking spills', 'think_spills'), ('looped blocks', 'loop_blocks'),
+               ('unrecovered loops', 'loop_unrecovered'), ('max_tokens stops', 'px_max_tokens'),
+               ('requests', 'px_requests'), ('rejected requests', 'px_rejected'), ('slow requests', 'px_slow_requests')],
+}
 RUN_GAP_SEC = 2 * 3600
 
 
@@ -678,9 +651,14 @@ def recent_runs(attempts, n=RECENT_RUNS):
                                / max(1, sum(1 for a in scored if a['pass'] and a['steps'] is not None)), 2)
                          if any(a['pass'] and a['steps'] is not None for a in scored) else None,
             'ends': dict(ends),
+            # attempts raising each outcomes.py flag, and summed error / event counters
+            'flags': dict(sorted(Counter(f for a in atts for f in a['flags'] if f in outcomes.FLAGS).items(),
+                                 key=lambda kv: -kv[1])),
+            'counts': {lb: tot for lb, col in RECENT_COUNTS.get(runner, [])
+                       if (tot := int(sum(_px(a, col) or 0 for a in atts))) or lb in ('tool calls', 'edits')},
             'details': {k: v for k, v in details.items() if v not in ('', None)},
             'results': [{'label': task_label(a['task']), 'pass': a['pass'], 'end': a['end_reason'],
-                         'steps': a['steps'], 'dur': a['duration']} for a in atts],
+                         'steps': a['steps'], 'dur': a['duration'], 'flags': sorted(a['flags'])} for a in atts],
         })
     return out
 
@@ -1326,21 +1304,28 @@ def load_test_lists(pin_label):
     # the filter panel as quick selections; tests no model has run yet are dropped, and
     # a file with none left over is skipped entirely.
     lists = []
-    for path in sorted(glob.glob('*.txt')):
+    # (harbor/lists/*.txt too: same format, and TB2 rows are just '<task> [calls] [max_dur]')
+    seen = set()
+    for path in sorted(glob.glob('*.txt')) + sorted(glob.glob('../harbor/lists/*.txt')):
+        if os.path.basename(path) in seen:
+            continue
+        seen.add(os.path.basename(path))
         labels, missing = [], 0
         for line in open(path):
             parts = line.split('#')[0].split()
-            if len(parts) < 2:
+            if not parts:
                 continue
             # list rows name an exercise, not a runner: every variant of it is selected
-            hits = [lbl for t, lbl in pin_label.items() if t[1:] == (parts[0], parts[1])]
+            # (TB2 rows are a lone task name: language 'tb2')
+            hits = [lbl for t, lbl in pin_label.items()
+                    if t[1:] == tuple(parts[:2]) or (t[1] == 'tb2' and t[2] == parts[0])]
             for lbl in hits:
                 if lbl not in labels:
                     labels.append(lbl)
             if not hits:
                 missing += 1
         if labels:
-            lists.append({'name': path[:-4], 'exercises': labels, 'missing': missing})
+            lists.append({'name': os.path.basename(path)[:-4], 'exercises': labels, 'missing': missing})
     return lists
 
 
@@ -1349,7 +1334,7 @@ def main():
     data = build_dataset(rows, excluded)
     data['recent_runs'] = recent
     data['model_settings'] = model_settings(rows)
-    data['settings_effects'] = settings_effects(rows)
+    data['fx'] = fx_export(rows)
 
     template = open(TEMPLATE_PATH).read()
     assert template.count('__DATA__') == 1, 'template must contain exactly one __DATA__ placeholder'

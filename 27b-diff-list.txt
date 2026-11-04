@@ -2,22 +2,25 @@
 # (different pass/fail or different passing try). Dropped: say, forth, wordy, palindrome-products
 # (same try on both) and simple-cipher, rational-numbers (failed on both).
 
-javascript     scale-generator           4  600   # 2-4-F spread
-python         sgf-parsing               5  1100  # 2-3 on Qwen, fails on opus?, barely Bonsai
-go             simple-linked-list        4  400   # 1-4, quick
+javascript     scale-generator           4  600   # known but not often
+javascript      zebra-puzzle             5  800   # never recalled!
+
+python paasio              6  600   # 6/10 recall, but 24/32 pass
+rust    forth                4  500   # sometimes recalled but still often fail?
+
 #java            word-search              6  500   # 8!
 #java            full-word-search              9  500   # 8!
+
+#go             full-paasio               4  1800  
+
+
+go             simple-linked-list        4  400   # 1-4, quick  recalled 10/12
+python         sgf-parsing               5  1100  # passes are nearly all recalls, failures are not
+go             bowling                   6  1200  #recalled 5/8
 python          pov                      5  500
-javascript      zebra-puzzle             5  800
+
 
 #javascript     grade-school              3 
-#go             full-paasio               4  1800  
-go             bowling                   6  1200
-
-
-python paasio              6  600   # 
-rust    forth                4  500   # base passed on try 4
-
 #rust           acronym                   4  400  # fine but similar results/time to others
 #javascript     house                     4  500  # not enough differentiation
 #javascript     promises                  4  500  # too easy

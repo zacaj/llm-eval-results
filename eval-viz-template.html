@@ -15,16 +15,19 @@
     --baseline:       #c3c2b7;
     --border:         rgba(11,11,11,0.10);
     --seq-blue:       #2a78d6;
+    --neutral-down:   #0f9e9a;  /* neutral stat going down (up = --seq-blue) */
     --seq-blue-dark:  #1c5cab;
     --seq-purple:     #7c4fd1;
     --status-good:      #0ca30c;
     --status-critical:  #d03b3b;
+    --status-warn:  #e8892b;
     --good-fast:      #0a6e0a;
     --good-mid:       #d9d94a;
     --good-slow:      #e8842a;
     --quant-iq3xxs:   #2a78d6;
     --quant-iq4xs:    #eb6834;
     --quant-q4kxl:    #1baf7a;
+    --quant-q4km:    #7cc43a;
     --quant-iq3s:     #3cb8d9;
     --quant-iq1m:     #7c4fd1;
     --quant-tq20:     #d9488f;
@@ -52,16 +55,19 @@
       --baseline:       #383835;
       --border:         rgba(255,255,255,0.10);
       --seq-blue:       #3987e5;
+      --neutral-down:   #35c4bd;  /* neutral stat going down (up = --seq-blue) */
       --seq-blue-dark:  #256abf;
       --seq-purple:     #a77dea;
       --status-good:      #0ca30c;
       --status-critical:  #e66767;
+      --status-warn:  #f29a3d;
       --good-fast:      #1fae1f;
       --good-mid:       #a6a530;
       --good-slow:      #c2661c;
       --quant-iq3xxs:   #3987e5;
       --quant-iq4xs:    #d95926;
       --quant-q4kxl:    #199e70;
+      --quant-q4km:    #7cc43a;
       --quant-iq3s:     #5cc8e6;
       --quant-iq1m:     #a77dea;
       --quant-tq20:     #e872ae;
@@ -88,16 +94,19 @@
     --baseline:       #383835;
     --border:         rgba(255,255,255,0.10);
     --seq-blue:       #3987e5;
+    --neutral-down:   #35c4bd;  /* neutral stat going down (up = --seq-blue) */
     --seq-blue-dark:  #256abf;
     --seq-purple:     #a77dea;
     --status-good:      #0ca30c;
     --status-critical:  #e66767;
+    --status-warn:  #f29a3d;
     --good-fast:      #1fae1f;
     --good-mid:       #a6a530;
     --good-slow:      #c2661c;
     --quant-iq3xxs:   #3987e5;
     --quant-iq4xs:    #d95926;
     --quant-q4kxl:    #199e70;
+    --quant-q4km:    #7cc43a;
     --quant-iq3s:     #5cc8e6;
     --quant-iq1m:     #a77dea;
     --quant-tq20:     #e872ae;
@@ -123,7 +132,14 @@
   /* nothing on the page should scroll it sideways (wide tables have their own scroll boxes);
      clip, unlike hidden, keeps position: sticky working */
   html, body { overflow-x: clip; }
-  .viz-root { padding: 32px clamp(8px, 3vw, 24px) 64px; max-width: 980px; margin: 0 auto; }
+  .viz-root { padding: 32px 24px 64px; max-width: 980px; margin: 0 auto; }
+  /* below this the side gutters and card insets cost more than they're worth: the column
+     goes edge to edge, cards lose their side border/rounding and keep a small inset */
+  @media (max-width: 1240px) {
+    .viz-root { max-width: none; padding-inline: 0; }
+    .card { border-radius: 0; border-inline: 0; padding-inline: 10px; }
+    .page-head, .stat-row { padding-inline: 10px; }
+  }
 
   .page-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 4px; }
   h1 { font-size: 20px; font-weight: 600; margin: 0; }
@@ -268,17 +284,26 @@
   .filter-panel {
     position: fixed; top: 20px; right: 20px; z-index: 21; width: 440px; max-width: calc(100vw - 40px); max-height: calc(100vh - 40px);
     background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px;
-    box-shadow: 0 8px 28px rgba(0,0,0,0.22); display: none; flex-direction: column; overflow: hidden;
+    box-shadow: 0 8px 28px rgba(0,0,0,0.22); display: none; flex-direction: column; overflow-x: hidden; overflow-y: auto;
   }
   .filter-panel.open { display: flex; }
   .filter-panel-head {
     display: flex; align-items: center; justify-content: space-between; padding: 12px 14px;
     border-bottom: 1px solid var(--border); font-size: 13px; font-weight: 600; color: var(--text-primary);
+    position: sticky; top: 0; z-index: 1; background: var(--surface-1);
   }
   .filter-panel-close { background: none; border: none; color: var(--text-muted); font-size: 14px; cursor: pointer; padding: 2px 4px; }
   .filter-panel-close:hover { color: var(--text-primary); }
   .filter-panel-note { font-size: 11px; color: var(--text-muted); line-height: 1.5; padding: 10px 14px 0; margin: 0; }
-  .filter-section { padding: 10px 14px; overflow-y: auto; }
+  /* Small sections keep their natural height (the panel scrolls if they don't fit); the
+     two long lists fill what's left but never shrink below a usable height, and only
+     their checkbox list scrolls, so the search / buttons above it stay in view. */
+  .filter-section { padding: 10px 14px; flex: none; }
+  .filter-section[data-fold="models"], .filter-section[data-fold="exercises"] {
+    flex: 1 1 0; min-height: 300px; display: flex; flex-direction: column; overflow: hidden;
+  }
+  .filter-section[data-fold="models"] > .filter-list, .filter-section[data-fold="exercises"] > .filter-list { flex: 1 1 auto; min-height: 0; max-height: none; }
+  .filter-section.collapsed[data-fold="models"], .filter-section.collapsed[data-fold="exercises"] { flex: none; min-height: 0; }
   .filter-section-head { display: flex; align-items: center; justify-content: space-between; font-size: 11px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.02em; margin-bottom: 6px; }
   .filter-mini-btn { font: inherit; font-size: 11px; color: var(--seq-blue); background: none; border: none; cursor: pointer; padding: 2px 4px; }
   .filter-mini-btn:hover { text-decoration: underline; }
@@ -295,6 +320,28 @@
   .filter-item input { margin: 0; flex: none; }
   .filter-item .quant-dot { flex: none; }
   .filter-item span.label-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .filter-mask-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .filter-mask-cols > div { min-width: 0; }
+  .filter-mask-cols.filter-mask-3 { grid-template-columns: 1fr 2fr 1fr 1fr; }
+  .filter-mask-head { display: flex; align-items: baseline; gap: 4px; }
+  .filter-mask-btns { margin-left: auto; }
+  .tri-cb { flex: none; width: 14px; height: 14px; padding: 0; font: 700 10px/12px system-ui, sans-serif; text-align: center;
+    border: 1px solid var(--text-muted); border-radius: 3px; background: var(--surface-1); color: #fff; cursor: pointer; }
+  .tri-cb.in { background: var(--seq-blue); border-color: var(--seq-blue); }
+  .tri-cb.out { background: var(--status-critical); border-color: var(--status-critical); }
+  .filter-item.mask-zero { opacity: .5; }
+  .filter-mask-sub { font-size: 11px; color: var(--text-secondary); margin-top: 6px; }
+  .filter-mask-btns .filter-mini-btn { padding: 0 3px; }
+  .filter-list.filter-list-2col { display: grid; grid-template-columns: 1fr 1fr; column-gap: 10px; align-content: start; }
+  .filter-mask-head { font-size: 11px; color: var(--text-secondary); margin-bottom: 4px; }
+  .filter-cols { display: contents; }
+  /* wide screens: double-width panel, models and exercises side by side */
+  @media (min-width: 1000px) {
+    .filter-panel { width: 900px; }
+    .filter-cols { display: grid; grid-template-columns: 1fr 1fr; align-items: stretch; flex: 1 1 0; min-height: 360px; overflow: hidden; }
+    .filter-cols > .filter-section { min-height: 0; }
+  }
 
   .fold-title { cursor: pointer; user-select: none; }
   .fold-title::before { content: '▾'; display: inline-block; width: 12px; color: var(--text-muted); }
@@ -347,6 +394,7 @@
   .settings-row { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; font-size: 12px; margin-bottom: 5px; }
   .settings-row .settings-key { color: var(--text-muted); min-width: 4.5em; }
   .settings-chip { display: inline-flex; align-items: center; gap: 3px; border: 1px solid var(--grid); border-radius: 4px; padding: 0 2px 0 6px; }
+  .settings-chip.none { opacity: .4; }
   .settings-chip .filter-run-count { margin: 0 2px; }
   .settings-chip button { border: none; background: none; cursor: pointer; color: var(--text-secondary); padding: 0 3px; font-size: 12px; }
   .settings-chip button:hover { color: var(--text-primary, inherit); background: var(--grid); border-radius: 3px; }
@@ -360,6 +408,10 @@
   .recent-runs .rr-kv .wide { grid-column: span 2; }
   .recent-runs .rr-kv .rr-k { display: block; font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
   .recent-runs .rr-kv .rr-v { display: block; font-size: 13px; color: var(--text-primary, inherit); font-weight: 500; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+  .recent-runs .rr-task, .recent-runs .rr-flag { transition: opacity .12s; }
+  .recent-runs .rr-dim { opacity: .25; }
+  .recent-runs .rr-flags { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 8px; }
+  .recent-runs .rr-flag { font-size: 11px; padding: 2px 6px; border-radius: 3px; background: var(--grid); }
   .recent-runs .rr-tasks { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
   .recent-runs .rr-task { font-size: 11px; padding: 2px 6px; border-radius: 3px; border: 1px solid var(--grid); display: inline-flex; align-items: center; gap: 5px; }
   .recent-runs .rr-pips { display: inline-flex; gap: 2px; }
@@ -390,6 +442,8 @@
      what scrolls underneath it */
   .fx-row:hover td { background: color-mix(in srgb, var(--text-muted) 8%, var(--surface-1)); }
   .fx-weak td:first-child { color: var(--text-muted); }
+  .fx-axes th.fx-quiet { opacity: .55; }
+  .fx-name { display: inline-block; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
   .fx-count { color: var(--text-muted); font-size: 11.5px; margin-left: 4px; cursor: help; }
   .fx-variants { font-size: 11px; padding-left: 1.3em; white-space: normal; max-width: 320px; }
   .fx-bar .pt.thin { width: 1px; margin-left: 0; opacity: .55; top: 1px; height: 8px; }
@@ -529,9 +583,17 @@
     </div>
     <div class="filter-section" data-fold="runners">
       <div class="filter-section-head">
-        <span class="fold-title">Runners <span class="filter-count" id="runnerFilterCount"></span></span>
+        <span class="fold-title">Masks</span>
+        <button class="filter-mini-btn" id="masksClearBtn" type="button" title="Show everything again">Clear</button>
       </div>
-      <div class="filter-list" id="runnerFilterList" style="max-height:none"></div>
+      <p class="filter-panel-note" style="margin:0 0 6px">Hide part of the selection from every view without changing it: unticking a runner hides its selected tests. Model groups overlap (a model can be Qwen3.8, Flash-Next and Coder at once), so each one cycles on click: ✓ include, ✗ exclude, blank neither. With any group included, only models in an included group are shown; an excluded group's models are always hidden (✓ Flash-Next + ✗ Coder = Flash-Next without Coder). Quant type and quant method are checkboxes: a model needs a ticked box in both (or, if in none of a section's groups, its "(other)" ticked). Ticking back restores the same selection.</p>
+      <div class="filter-mask-cols filter-mask-3">
+        <div><div class="filter-mask-head">Runners <span class="filter-count" id="runnerFilterCount"></span><span class="filter-mask-btns"><button class="filter-mini-btn" type="button" data-mask="runnerFilterList" data-on="1">All</button><button class="filter-mini-btn" type="button" data-mask="runnerFilterList" data-on="0">None</button></span></div><div class="filter-list" id="runnerFilterList" style="max-height:none"></div></div>
+        <div><div class="filter-mask-head">Model groups <span class="filter-count" id="groupMaskCount"></span><span class="filter-mask-btns"><button class="filter-mini-btn" type="button" data-mask="groupMaskList" data-on="1" title="Clear every include / exclude">Reset</button></span></div><div class="filter-list filter-list-2col" id="groupMaskList"></div></div>
+        <div><div class="filter-mask-head">Quants<span class="filter-mask-btns"><button class="filter-mini-btn" type="button" data-mask="quantMaskList" data-on="1">All</button><button class="filter-mini-btn" type="button" data-mask="quantMaskList" data-on="0">None</button></span></div><div class="filter-list" id="quantMaskList"></div></div>
+        <div><div class="filter-mask-head">Effort<span class="filter-mask-btns"><button class="filter-mini-btn" type="button" data-mask="effortMaskList" data-on="1">All</button><button class="filter-mini-btn" type="button" data-mask="effortMaskList" data-on="0">None</button></span></div><div class="filter-list" id="effortMaskList" style="max-height:none"></div>
+          <div class="filter-mask-head" style="margin-top:8px">Think budget<span class="filter-mask-btns"><button class="filter-mini-btn" type="button" data-mask="thinkMaskList" data-on="1">All</button><button class="filter-mini-btn" type="button" data-mask="thinkMaskList" data-on="0">None</button></span></div><div class="filter-list" id="thinkMaskList" style="max-height:none"></div></div>
+      </div>
     </div>
     <div class="filter-section" data-fold="settings">
       <div class="filter-section-head">
@@ -540,6 +602,7 @@
       <p class="filter-panel-note" style="margin:0 0 6px">Check (✓) or uncheck (✗) every model that ran with a setting value. Counts are checked / all models with that value. A model pooling several values (e.g. aider + Harbor runs) matches each of them.</p>
       <div id="settingsFilterList"></div>
     </div>
+    <div class="filter-cols">
     <div class="filter-section" data-fold="models">
       <div class="filter-section-head">
         <span class="fold-title">Models <span class="filter-count" id="modelFilterCount"></span></span>
@@ -579,6 +642,7 @@
       <div id="commonNote" style="font-size:11px;color:var(--text-muted);margin:0 0 6px"></div>
       <div class="filter-list" id="exerciseFilterList"></div>
     </div>
+    </div>
     <div class="filter-section" data-fold="date">
       <div class="filter-section-head">
         <span class="fold-title">Date / time (UTC)</span>
@@ -602,7 +666,7 @@
 
   <div class="card">
     <h2>What changing a setting did</h2>
-    <p class="desc">The same gguf run at two settings combos, compared only on the tasks both ran (same runner/suite). A row is one change, e.g. <i>effort low→xhigh</i>: only pairs where exactly those settings differ and every other recorded setting is the same (a change that also moves the thinking budget is its own row); the setting filter shows every change that includes the chosen setting. Rows tagged <i>+ any other</i> pool every comparison containing that one change, whatever else changed with it, for a setting's overall effect; the variants included are listed under the name, and expanded, each model's variants are pooled into one line (thin ticks show each variant). "N × M tasks" = N models with M shared tasks each on average (hover for each model's count). Hover a column header for its full name, which direction is better, and its scale. Each stat is averaged per task first, so a task run three times doesn't outweigh one run once. Rates show the difference in points; everything else shows B vs A as a typical per-task ratio. Each stat is marked ↑ better / ↓ better (green = improvement, red = worse) or neutral (blue). A row's cell pools its models by precision (a random-effects meta-analysis: a tight result counts for more than a noisy one, and models that genuinely disagree widen the interval): colored = significant at the chosen confidence level, stronger = bigger and clearer, gray number = not significant, muddy purple "+x / −y" = solid results in opposite directions (each side pooled on its own), empty = a change under 3 points / 5%. Rows are sorted by that evidence; by default a row needs a significant stat, and one with only 1–2 models also needs enough of it (that hides most one-model sampler sweeps; shown in gray with the checkbox). Click a row to see each model underneath (hover a name for details): each cell is that model's change with its interval (dot = estimate, colored if outside noise; scale shared down the column, zero in the middle). The <i>runner</i> rows compare the same gguf across harnesses on shared exercises, all settings pooled; the tag lists settings that also differ. Controls and open rows are remembered in this browser. Ignores the filters.</p>
+    <p class="desc">The same gguf run at two settings combos, compared only on the tasks both ran (same runner/suite). A row is one change, e.g. <i>effort low→xhigh</i>: only pairs where exactly those settings differ and every other recorded setting is the same (a change that also moves the thinking budget is its own row); the setting filter shows every change that includes the chosen setting. Rows tagged <i>+ any other</i> pool every comparison containing that one change, whatever else changed with it, for a setting's overall effect; the variants included are listed under the name, and expanded, each model's variants are pooled into one line (thin ticks show each variant). "N × M tasks" = N models with M shared tasks each on average (hover for each model's count). Columns are ordered by how many of the rows shown have a colored cell: those colored in over half the rows first, in a fixed order, then the rest by count; columns with none come last, grayed. Hover a column header for its full name, which direction is better, and its scale. Each stat is averaged per task first, so a task run three times doesn't outweigh one run once. Rates show the difference in points; everything else shows B vs A as a typical per-task ratio. Each stat is marked ↑ better / ↓ better (green = improvement, red = worse) or neutral (blue = up, teal = down). A row's cell pools its models by precision (a random-effects meta-analysis: a tight result counts for more than a noisy one, and models that genuinely disagree widen the interval): colored = significant at the chosen confidence level, stronger = bigger and clearer, gray number = not significant, muddy purple "+x / −y" = solid results in opposite directions (each side pooled on its own), empty = a change under 3 points / 5%. Rows are sorted by that evidence; by default a row needs a significant stat, and one with only 1–2 models also needs enough of it (that hides most one-model sampler sweeps; shown in gray with the checkbox). Click a row to see each model underneath (hover a name for details): each cell is that model's change with its interval (dot = estimate, colored if outside noise; scale shared down the column, zero in the middle). The <i>runner</i> rows compare the same gguf across harnesses on shared exercises, all settings pooled; the tag lists settings that also differ. Controls and open rows are remembered in this browser. Follows the filter panel (models, tests, runners, dates).</p>
     <div class="fx-controls">
       <label><input type="checkbox" id="fxSingle"> single-setting changes only</label>
       <label><input type="checkbox" id="fxWeak"> also show changes with no significant effect</label>
@@ -610,6 +674,20 @@
       <label title="confidence level for both the per-comparison intervals and the across-models test">confidence <select id="fxLevel"><option>50</option><option>60</option><option>70</option><option>80</option><option selected>90</option><option>95</option><option>99</option></select>%</label>
     </div>
     <div class="fx-wrap"><table class="fx-axes" id="fxAxes"></table></div>
+  </div>
+
+  <div class="card">
+    <h2>What stands out</h2>
+    <p class="desc"><b>Models</b>: each gguf (its settings variants pooled) against every other model, on the tasks it ran: per task its mean vs the other models' (each model's own mean, averaged), pooled over tasks. <b>Tests</b>: each task against the same models' other tasks in its suite: per model its mean on this task vs its usual, pooled over models, so a test where models time out, glitch or spend more than usual stands out. Rows marked <i>group</i> do the same for several at once (ggufs sharing a name token, e.g. a family or quant; or a language / a whole suite), so two similar models stand out together instead of each diluting the other's baseline; expand a group for its members; on the tests tab, expand any row to see each model's own difference (one point per model, colored when past the column's big mark: 10 points / 25%). Cells and colors work as in the settings table (green better, red worse, neutral stats blue when up and teal when down; colored = significant at the chosen level; gray number = not). With this many rows, some colored cells are chance at any level, so the default here is 95% and rows are sorted by how much stands out. Intervals are normal approximations over tasks (models) / models (tests). Follows the filter panel (models, tests, runners, dates).</p>
+    <div class="fx-controls">
+      <label><input type="radio" name="soKind" value="models" checked> models</label>
+      <label><input type="radio" name="soKind" value="tests"> tests</label>
+      <label>show <select id="soWhich"><option value="">singles and groups</option><option value="single">singles only</option><option value="group">groups only</option></select></label>
+      <label><input type="checkbox" id="soAll"> also show rows with nothing significant</label>
+      <label title="show each cell's own value instead of its difference from the rest; the difference moves to the tooltip. Colors stay the same"><input type="checkbox" id="soAbs"> absolute values</label>
+      <label>confidence <select id="soLevel"><option>50</option><option>60</option><option>70</option><option>80</option><option>90</option><option selected>95</option><option>99</option></select>%</label>
+    </div>
+    <div class="fx-wrap"><table class="fx-axes" id="soTable"></table></div>
   </div>
 
   <div class="card">
@@ -806,7 +884,7 @@ const tt = document.getElementById('tooltip');
 
 // Quant identity, consistent across every chart. Colors are CSS vars (theme-aware);
 // quant name always rides along in the tooltip/legend so color is never the only signal.
-const QUANT_VAR = { 'IQ3_XXS': '--quant-iq3xxs', 'IQ4_XS': '--quant-iq4xs', 'Q4_K_XL': '--quant-q4kxl',
+const QUANT_VAR = { 'IQ3_XXS': '--quant-iq3xxs', 'IQ4_XS': '--quant-iq4xs', 'Q4_K_XL': '--quant-q4kxl', 'Q4_K_M': '--quant-q4km',
   'IQ3_S': '--quant-iq3s', 'IQ1_M': '--quant-iq1m', 'TQ2_0': '--quant-tq20' };
 function quantOf(modelLabel) { return data.model_quant[modelLabel] || 'other'; }
 function quantColorVar(modelLabel) { return `var(${QUANT_VAR[quantOf(modelLabel)] || '--quant-other'})`; }
@@ -838,6 +916,52 @@ const runnerOf = ex => {
 };
 // The tests every view shows: the selected exercises minus any hidden runner.
 const inView = ex => activeExercises.has(ex) && !disabledRunners.has(runnerOf(ex));
+// Model-group masks work the same way for models: a group listed here hides its members.
+// Groups list base ggufs; the model list has one entry per gguf + settings variant, so
+// expand each group to every variant label of its ggufs.
+const maskedGroups = new Set();
+// Model groups are overlapping tags, so they're include / exclude rather than on / off:
+// with any group included, a model must be in one of them; an excluded group's models are
+// hidden whatever else they're in ("Flash-Next, but not Coder").
+const groupState = new Map();  // label -> "in" | "out"
+let maskedModels = new Set();
+const variantsOfGguf = new Map();
+for (const a of data.fx.attempts) {
+  if (!variantsOfGguf.has(a.g)) variantsOfGguf.set(a.g, new Set());
+  variantsOfGguf.get(a.g).add(a.m);
+}
+const groupModels = g => g.models ||= [...new Set(g.members.flatMap(gg => [...(variantsOfGguf.get(gg) || [gg])]))]
+  .filter(m => data.matrix_models.includes(m));
+// The quant sections, quant type and quant-selection method (per-block quant mixes like
+// Gyro), are checkboxes: a model stays visible if in each section it's in at least one
+// ticked group -- or in none of that section's groups and the section's "(other)" box is
+// ticked. Model groups use groupState above instead.
+const QUANT_METHODS = new Set(['Gyro', 'GSQ / RCO']);
+const sectionOf = g => g.quant ? 'quants' : QUANT_METHODS.has(g.label) ? 'methods' : 'groups';
+const OTHER = { quants: '(other quants)', methods: '(no quant method)' };
+// Setting masks (effort, think cap): boxes keyed `effort:low`, kept in maskedGroups. A model
+// pooling several values (aider + Harbor runs) stays while any of them is ticked; one with
+// none recorded counts as '(unset)'.
+const SETTING_MASKS = ['effort', 'think'];
+const settingVals = (m, k) => (data.model_settings[m] || {})[k] || ['(unset)'];
+const settingValues = k => [...new Set(data.matrix_models.flatMap(m => settingVals(m, k)))]
+  .sort((a, b) => (parseFloat(a) || 0) - (parseFloat(b) || 0) || a.localeCompare(b));
+const recomputeMaskedModels = () => {
+  const tagged = st => data.fx.model_groups.filter(g => sectionOf(g) === 'groups' && groupState.get(g.label) === st).map(groupModels);
+  const incl = tagged('in'), excl = tagged('out');
+  maskedModels = new Set(data.matrix_models.filter(m =>
+    (incl.length && !incl.some(ms => ms.includes(m))) || excl.some(ms => ms.includes(m)) ||
+    SETTING_MASKS.some(k => settingVals(m, k).every(v => maskedGroups.has(`${k}:${v}`))) ||
+    Object.keys(OTHER).some(sec => {
+    const mine = data.fx.model_groups.filter(g => sectionOf(g) === sec && groupModels(g).includes(m));
+    return mine.length ? mine.every(g => maskedGroups.has(g.label)) : maskedGroups.has(OTHER[sec]);
+  })));
+};
+// models in none of a section's groups, for its "(other)" box
+const ungrouped = sec => data.matrix_models.filter(m =>
+  !data.fx.model_groups.some(g => sectionOf(g) === sec && groupModels(g).includes(m)));
+// The models every view shows: the selected ones minus any masked group's.
+const modelInView = m => activeModels.has(m) && !maskedModels.has(m);
 
 const allTimestamps = data.cost_spread.points.map(p => Date.parse(p.timestamp)).filter(t => !isNaN(t));
 const minTs = Math.min(...allTimestamps), maxTs = Math.max(...allTimestamps);
@@ -867,6 +991,8 @@ function loadFiltersFromStorage() {
   (saved.addedExercises || []).forEach(ex => activeExercises.add(ex));
   (saved.removedExercises || []).forEach(ex => activeExercises.delete(ex));
   (saved.disabledRunners || []).forEach(r => disabledRunners.add(r));
+  (saved.maskedGroups || []).forEach(g => maskedGroups.add(g));
+  Object.entries(saved.groupState || {}).forEach(([g, st]) => groupState.set(g, st));
   if (saved.dateFrom != null) dateFrom = Math.max(saved.dateFrom, minTs);
   if (saved.dateTo != null) dateTo = Math.min(saved.dateTo, maxTs);
   if (dateFrom > dateTo) { dateFrom = minTs; dateTo = maxTs; }
@@ -886,6 +1012,8 @@ function saveFiltersToStorage() {
       addedExercises: exerciseLabels.filter(ex => !defaultSet.has(ex) && activeExercises.has(ex)),
       removedExercises: exerciseLabels.filter(ex => defaultSet.has(ex) && !activeExercises.has(ex)),
       disabledRunners: [...disabledRunners],
+      maskedGroups: [...maskedGroups],
+      groupState: Object.fromEntries(groupState),
       // Each end is stored as null while it sits at its bound, independently: a
       // saved timestamp would pin the range to the data as it was at save time, so a
       // window ending at "now" would stop there and hide every newer result on reload.
@@ -920,7 +1048,7 @@ function latestPerKey(items, keyOf) {
 function filteredCostPoints() {
   const inWindow = data.cost_spread.points.filter(p => {
     const t = Date.parse(p.timestamp);
-    return activeModels.has(p.model) && inView(p.exercise) && t >= dateFrom && t <= dateTo;
+    return modelInView(p.model) && inView(p.exercise) && t >= dateFrom && t <= dateTo;
   });
   const latest = new Set(latestPerKey(inWindow, p => `${p.model}|${p.exercise}|${p.seed}`).values());
   return inWindow.filter(p => latest.has(p));
@@ -2586,12 +2714,12 @@ function deriveMatrixFiltered(chart1Data) {
   const windowCells = buildWindowDetail();
   // chart1Data only has models with data on the active exercises; a selected model
   // with none is appended (blank column) rather than silently vanishing from the grid.
-  const scored = chart1Data.map(d => d.label).filter(m => activeModels.has(m));
+  const scored = chart1Data.map(d => d.label).filter(m => modelInView(m));
   const modelOrder = matrixSortBy.value === 'projected'
-    ? scored.concat(data.matrix_models.filter(m => activeModels.has(m) && !scored.includes(m)))
+    ? scored.concat(data.matrix_models.filter(m => modelInView(m) && !scored.includes(m)))
     : matrixSortBy.value === 'alpha'
-      ? data.matrix_models.filter(m => activeModels.has(m)).sort((a, b) => a.localeCompare(b))
-      : data.matrix_models.filter(m => activeModels.has(m));
+      ? data.matrix_models.filter(m => modelInView(m)).sort((a, b) => a.localeCompare(b))
+      : data.matrix_models.filter(m => modelInView(m));
   return {
     matrixModelsFiltered: modelOrder,
     matrixFiltered: data.matrix
@@ -2600,8 +2728,22 @@ function deriveMatrixFiltered(chart1Data) {
   };
 }
 
+// hovering a task or flag chip dims the chips of the other kind that don't share an attempt with it
+function recentRunsHover(e) {
+  const det = e.target.closest('details');
+  if (!det) return;
+  const chip = e.target.closest('.rr-task, .rr-flag');
+  const all = det.querySelectorAll('.rr-task, .rr-flag');
+  if (!chip) { all.forEach(c => c.classList.remove('rr-dim')); return; }
+  const mine = new Set(chip.dataset.r.split(',').filter(Boolean));
+  const kind = chip.classList.contains('rr-task');
+  all.forEach(c => c.classList.toggle('rr-dim', c !== chip && c.classList.contains('rr-task') !== kind &&
+    !c.dataset.r.split(',').some(i => mine.has(i))));
+}
+
 function renderRecentRuns() {
   const el = document.getElementById('recentRuns');
+  if (!el.dataset.hover) { el.dataset.hover = '1'; el.addEventListener('mouseover', recentRunsHover); el.addEventListener('mouseleave', () => el.querySelectorAll('.rr-dim').forEach(c => c.classList.remove('rr-dim'))); }
   const runs = data.recent_runs || [];
   if (!runs.length) { el.textContent = 'No runs.'; return; }
   const esc = v => String(v).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -2624,6 +2766,7 @@ function renderRecentRuns() {
       ['harness failures', r.harness], ['ended', ends],
       ...(r.seeds.length ? [['seeds', r.seeds.join(', ')]] : []),
       ...Object.entries(r.details),
+      ...Object.entries(r.counts || {}),
     ].map(([k, v]) => `<div${WIDE.has(k) ? ' class="wide"' : ''}><span class="rr-k">${esc(k)}</span><span class="rr-v">${esc(v)}</span></div>`).join('');
     // consecutive attempts at the same task collapse into one chip with a pip per attempt
     const groups = [];
@@ -2632,13 +2775,236 @@ function renderRecentRuns() {
       else groups.push({ label: t.label, items: [t] });
     }
     const tip = t => `${t.pass ? 'pass' : endLabel(t.end)}${t.steps != null ? `, ${t.steps} ${r.runner === 'aider' ? 'tries' : 'calls'}` : ''}${t.dur != null ? `, ${Math.round(t.dur)}s` : ''}`;
-    const tasks = groups.map(g => `<span class="rr-task" title="${esc(g.label + '\n' + g.items.map(tip).join('\n'))}">${esc(g.label.replace(/ ·\S+$/, ''))}` +
+    const tasks = groups.map(g => `<span class="rr-task" data-r="${g.items.map(t => r.results.indexOf(t)).join(',')}" title="${esc(g.label + '\n' + g.items.map(tip).join('\n'))}">${esc(g.label.replace(/ ·\S+$/, ''))}` +
       `<span class="rr-pips">${g.items.map(t => `<span class="rr-pip" style="background:${endColor(t.pass, t.end)}"></span>`).join('')}</span></span>`).join('');
+    // chips: non-pass end reasons (timeouts...) first, then outcome flags; each colored by the share of attempts that hit it
+    const chips = [
+      ...Object.entries(r.ends).filter(([k]) => k !== 'pass').sort((a, b) => b[1] - a[1])
+        .map(([k, n]) => ({ n, label: endLabel(k), fatal: true, hit: t => t.end === k && !t.pass })),
+      ...Object.entries(r.flags || {}).map(([k, n]) => ({ n, label: (data.flag_labels || {})[k] || k, hit: t => (t.flags || []).includes(k) })),
+    ];
+    const flagRows = chips.length ? `<div class="rr-flags">${chips.map(c => {
+      const lst = names => names.length ? names.map(x => '  ' + x).join('\n') : '  (none)';
+      const lab = t => t.label.replace(/ ·\S+$/, '');
+      const tip = `${c.label}: ${c.n}/${r.attempts}\n\nhit:\n${lst(r.results.filter(c.hit).map(lab))}` +
+        `\n\ndidn't:\n${lst(r.results.filter(t => !c.hit(t)).map(lab))}`;
+      const pct = Math.round(100 * c.n / r.attempts);
+      const hits = r.results.map((t, i) => c.hit(t) ? i : -1).filter(i => i >= 0).join(',');
+      return `<span class="rr-flag" data-r="${hits}" style="background:color-mix(in srgb, var(${c.fatal ? '--status-critical' : '--status-warn'}) ${Math.round(pct * 0.7)}%, var(--grid))" title="${esc(tip)}">${esc(c.label)} <b>${c.n}</b>/${r.attempts} · ${pct}%</span>`;
+    }).join('')}</div>` : '';
     const span = r.start === r.end ? when(r.start) : `${when(r.start)} → ${when(r.end)}`;
     return `<details${i === 0 ? ' open' : ''}><summary>${quantDotHtml(r.model)}<span class="rr-model">${esc(r.model)}</span>
       <span class="rr-rate">${rate}</span><span class="rr-meta">${span} · took ${dur(r.wall_sec)}</span></summary>
-      <div class="rr-kv">${kv}</div><div class="rr-tasks">${tasks}</div></details>`;
+      <div class="rr-kv">${kv}</div>${flagRows}<div class="rr-tasks">${tasks}</div></details>`;
   }).join('');
+}
+
+// ---- settings effects / standouts: computed here from the attempts that pass the filter
+// panel (data.fx: one record per attempt with every stat's value, from fx_export) ----
+// Comparisons pool per-unit differences (a task for settings / models, a model for tests);
+// intervals are normal approximations with a first-order Student-t correction.
+const FX_LEVELS = [50, 60, 70, 80, 90, 95, 99];
+const FX_Z = { 50: 0.674, 60: 0.842, 70: 1.036, 80: 1.282, 90: 1.645, 95: 1.960, 99: 2.576 };
+const EFFORT_ORDER = { none: 0, low: 1, medium: 2, high: 3, xhigh: 4 };
+const RUNNER_ORDER = { aider: 0, harbor: 1, 'harbor-tc': 2 };
+let fxData = { settings: [], standouts: { models: [], tests: [] } };
+
+// per-stat mean over the attempts of each list, then over the lists (so a heavily sampled
+// task / model doesn't outweigh the rest); null where no list has a value
+function fxMeanVec(lists) {
+  const S = data.fx.stats.length, sum = new Array(S).fill(0), cnt = new Array(S).fill(0);
+  for (const xs of lists) {
+    const v = fxListMean(xs);
+    for (let i = 0; i < S; i++) if (v[i] != null) { sum[i] += v[i]; cnt[i]++; }
+  }
+  return sum.map((x, i) => cnt[i] ? x / cnt[i] : null);
+}
+const fxListMeanCache = new WeakMap();
+function fxListMean(xs) {
+  if (fxListMeanCache.has(xs)) return fxListMeanCache.get(xs);
+  const S = data.fx.stats.length, sum = new Array(S).fill(0), cnt = new Array(S).fill(0);
+  for (const r of xs) for (let i = 0; i < S; i++) if (r.x[i] != null) { sum[i] += r.x[i]; cnt[i]++; }
+  const out = sum.map((x, i) => cnt[i] ? x / cnt[i] : null);
+  fxListMeanCache.set(xs, out);
+  return out;
+}
+// units: [{ a: per-stat means (baseline / setting A), b: (subject / setting B) }]
+function fxStats(units, minUnits) {
+  const out = [];
+  data.fx.stats.forEach((st, i) => {
+    const pairs = [];
+    for (const u of units) {
+      const a = u.a[i], b = u.b[i];
+      if (a != null && b != null && (st.kind === 'rate' || (a > 0 && b > 0))) pairs.push([a, b]);
+    }
+    const n = pairs.length;
+    if (n < minUnits) return;
+    const d = pairs.map(([a, b]) => st.kind === 'rate' ? b - a : Math.log(b / a));
+    const est = d.reduce((x, y) => x + y, 0) / n;
+    const se = Math.sqrt(d.reduce((x, y) => x + (y - est) ** 2, 0) / (n - 1) / n);
+    const bk = x => st.kind === 'rate' ? x : Math.exp(x) - 1;
+    const ci = {};
+    for (const lv of FX_LEVELS) {
+      const z = FX_Z[lv], t = z + (z ** 3 + z) / (4 * (n - 1));
+      ci[lv] = [bk(est - t * se), bk(est + t * se)];
+    }
+    const [lo, hi] = ci[90];
+    out.push({ ...st, n, a: pairs.reduce((x, p) => x + p[0], 0) / n, b: pairs.reduce((x, p) => x + p[1], 0) / n,
+      delta: bk(est), lo, hi, ci, sig: lo > 0 || hi < 0 });
+  });
+  return out;
+}
+const fxSettingOrder = (k, v) => k === 'effort' ? [0, EFFORT_ORDER[v] ?? 9]
+  : isNaN(parseFloat(v)) ? [1, 0] : [0, parseFloat(v)];
+const fxLess = (x, y) => x[0] !== y[0] ? x[0] < y[0] : x[1] < y[1];
+const fxPush = (m, k, v) => { if (!m.has(k)) m.set(k, []); m.get(k).push(v); return m; };
+
+function fxSettings(recs) {
+  // the same gguf at two settings combos, on the tasks both ran; every pair of combos
+  // differing the same way (effort low→xhigh at temp 0.6, again at 0.8, in aider and in
+  // Harbor...) is one comparison, pooled over all their matched tasks
+  const combos = data.fx.combos, byCombo = new Map();
+  for (const r of recs) {
+    const k = `${r.g}\u0001${r.c}`;
+    if (!byCombo.has(k)) byCombo.set(k, { g: r.g, q: r.q, c: r.c, tasks: new Map() });
+    fxPush(byCombo.get(k).tasks, r.t, r);
+  }
+  const byG = new Map();
+  for (const e of byCombo.values()) fxPush(byG, e.g, e);
+  const changes = new Map();
+  for (const es of byG.values()) for (let i = 0; i < es.length; i++) for (let j = i + 1; j < es.length; j++) {
+    let A = es[i], B = es[j], da = combos[A.c], db = combos[B.c];
+    // a setting recorded on only one side is unknown, never a difference
+    const axes = Object.keys(da).filter(k => k in db && da[k] !== db[k]).sort();
+    if (!axes.length) continue;
+    const shared = [...A.tasks.keys()].filter(t => B.tasks.has(t));
+    if (!shared.length) continue;
+    // A = the "lower" value of the first differing setting
+    if (fxLess(fxSettingOrder(axes[0], db[axes[0]]), fxSettingOrder(axes[0], da[axes[0]]))) [A, B, da, db] = [B, A, db, da];
+    const key = `${A.g}|${axes}|${axes.map(k => da[k])}|${axes.map(k => db[k])}`;
+    if (!changes.has(key)) changes.set(key, { g: A.g, q: A.q, axes, a: Object.fromEntries(axes.map(k => [k, da[k]])), b: Object.fromEntries(axes.map(k => [k, db[k]])), subs: [] });
+    changes.get(key).subs.push({ A, B, shared, da, db });
+  }
+  const out = [];
+  for (const ch of changes.values()) {
+    const tp = ch.subs.flatMap(sb => sb.shared.map(t => [sb.A.tasks.get(t), sb.B.tasks.get(t)]));
+    if (tp.length < 3) continue;
+    const stats = fxStats(tp.map(([x, y]) => ({ a: fxListMean(x), b: fxListMean(y) })), 3);
+    if (!stats.length) continue;
+    let fixed = null;
+    for (const sb of ch.subs) {
+      const f = Object.fromEntries(Object.entries(sb.da).filter(([k, v]) => !ch.axes.includes(k) && sb.db[k] === v));
+      fixed = fixed == null ? f : Object.fromEntries(Object.entries(fixed).filter(([k, v]) => f[k] === v));
+    }
+    out.push({ model: ch.g, quant: ch.q, axes: ch.axes, a: ch.a, b: ch.b, fixed: fixed || {}, tasks: tp.length,
+      runners: [...new Set(tp.flatMap(([x]) => x.map(r => r.v)))].sort(),
+      attempts_a: tp.reduce((n, [x]) => n + x.length, 0), attempts_b: tp.reduce((n, [, y]) => n + y.length, 0), stats });
+  }
+  // the same gguf on two harnesses, matched on (language, exercise), all settings pooled;
+  // also_differs lists the settings whose values differ between the sides
+  const byRunner = new Map();
+  for (const r of recs) {
+    const k = `${r.g}\u0001${r.v}`;
+    if (!byRunner.has(k)) byRunner.set(k, { g: r.g, q: r.q, v: r.v, twins: new Map() });
+    fxPush(byRunner.get(k).twins, r.w, r);
+  }
+  const byG2 = new Map();
+  for (const e of byRunner.values()) fxPush(byG2, e.g, e);
+  for (const es of byG2.values()) {
+    es.sort((x, y) => (RUNNER_ORDER[x.v] ?? 9) - (RUNNER_ORDER[y.v] ?? 9));
+    for (let i = 0; i < es.length; i++) for (let j = i + 1; j < es.length; j++) {
+      const A = es[i], B = es[j], shared = [...A.twins.keys()].filter(w => B.twins.has(w));
+      if (shared.length < 3) continue;
+      const stats = fxStats(shared.map(w => ({ a: fxListMean(A.twins.get(w)), b: fxListMean(B.twins.get(w)) })), 3);
+      if (!stats.length) continue;
+      const vals = side => Object.fromEntries(data.fx.setting_keys.map(k => [k, new Set(shared.flatMap(w => side.twins.get(w).map(r => combos[r.c][k]).filter(v => v != null)))]));
+      const sa = vals(A), sb = vals(B);
+      const also = data.fx.setting_keys.filter(k => sa[k].size && sb[k].size && [...sa[k]].sort().join() !== [...sb[k]].sort().join());
+      out.push({ model: A.g, quant: A.q, axes: ['runner'], a: { runner: A.v }, b: { runner: B.v }, fixed: {}, also_differs: also,
+        tasks: shared.length, runners: [A.v, B.v],
+        attempts_a: shared.reduce((n, w) => n + A.twins.get(w).length, 0), attempts_b: shared.reduce((n, w) => n + B.twins.get(w).length, 0), stats });
+    }
+  }
+  return out;
+}
+
+function fxModelStandouts(recs) {
+  // each gguf (settings pooled) vs every other model on its tasks; groups of ggufs
+  // sharing a name token vs everything outside the group
+  const byTask = new Map();
+  for (const r of recs) {
+    if (!byTask.has(r.t)) byTask.set(r.t, new Map());
+    fxPush(byTask.get(r.t), r.g, r);
+  }
+  const quant = new Map(recs.map(r => [r.g, r.q]));
+  const contrast = members => {
+    const units = [];
+    for (const byG of byTask.values()) {
+      const B = [...members].filter(g => byG.has(g)).map(g => byG.get(g));
+      const A = [...byG].filter(([g]) => !members.has(g)).map(([, xs]) => xs);
+      if (B.length && A.length) units.push({ a: fxMeanVec(A), b: fxMeanVec(B) });
+    }
+    return units;
+  };
+  const out = [];
+  for (const g of [...quant.keys()].sort()) {
+    const units = contrast(new Set([g])), stats = fxStats(units, 4);
+    if (stats.length) out.push({ label: g, quant: quant.get(g), members: [g], units: units.length, group: false, stats });
+  }
+  for (const grp of data.fx.model_groups) {
+    const mem = new Set(grp.members.filter(g => quant.has(g)));
+    if (mem.size < 2 || mem.size > quant.size - 1) continue;
+    const units = contrast(mem), stats = fxStats(units, 4);
+    if (stats.length) out.push({ label: grp.label, quant: grp.quant, members: [...mem].sort(), units: units.length, group: true, stats });
+  }
+  return out;
+}
+
+function fxTestStandouts(recs) {
+  // each task vs the same models' other tasks in its suite; groups: a language within a
+  // suite, and a whole suite
+  const byModel = new Map(), variant = new Map(), lang = new Map();
+  for (const r of recs) {
+    if (!byModel.has(r.m)) byModel.set(r.m, new Map());
+    fxPush(byModel.get(r.m), r.t, r);
+    variant.set(r.t, r.v); lang.set(r.t, r.l);
+  }
+  const quant = new Map(recs.map(r => [r.m, r.q]));
+  const contrast = tasks => {
+    const vs = new Set([...tasks].map(t => variant.get(t)));
+    const units = [];
+    for (const [m, byT] of byModel) {
+      const B = [...tasks].filter(t => byT.has(t)).map(t => byT.get(t));
+      const A = [...byT].filter(([t]) => !tasks.has(t) && vs.has(variant.get(t))).map(([, xs]) => xs);
+      if (B.length && A.length) units.push({ a: fxMeanVec(A), b: fxMeanVec(B), model: m, quant: quant.get(m), n: B.reduce((x, xs) => x + xs.length, 0) });
+    }
+    return units;
+  };
+  const out = [];
+  const all = [...variant.keys()].sort();
+  for (const t of all) {
+    const units = contrast(new Set([t])), stats = fxStats(units, 4);
+    if (stats.length) out.push({ label: t, members: [t], units: units.length, group: false, stats, perModel: units });
+  }
+  const groups = new Map();
+  for (const t of all) { fxPush(groups, `${lang.get(t)} (${variant.get(t)})`, t); fxPush(groups, `all ${variant.get(t)}`, t); }
+  for (const [label, ts] of groups) {
+    if (ts.length < 2) continue;
+    const units = contrast(new Set(ts)), stats = fxStats(units, 4);
+    if (stats.length) out.push({ label, members: [...ts].sort(), units: units.length, group: true, stats, perModel: units });
+  }
+  return out;
+}
+
+function fxCompute() {
+  const inWindow = data.fx.attempts.filter(r => {
+    const t = Date.parse(r.ts);
+    return modelInView(r.m) && inView(r.t) && t >= dateFrom && t <= dateTo;
+  });
+  // only the latest run per (model, task, seed) counts, as everywhere else
+  const latest = new Set(latestPerKey(inWindow, r => `${r.m}|${r.t}|${r.s}`).values());
+  const recs = inWindow.filter(r => latest.has(r));
+  fxData = { settings: fxSettings(recs), standouts: { models: fxModelStandouts(recs), tests: fxTestStandouts(recs) } };
 }
 
 // the table's controls and expanded rows survive reloads (per browser; best effort)
@@ -2665,9 +3031,46 @@ function fxRestore() {
     (st.open || []).forEach(k => fxOpen.add(k));
   } catch (e) { /* ignore a broken or blocked store */ }
 }
+// ---- shared by the settings-effects and standouts tables ----
+const esc = v => String(v).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+// thresholds for rates scale with the stat's span (EFFECT_RATE_SPAN in generate_viz_data.py:
+// 25 points for pass/timeout, 5 for cut-off rate); ratios are on one log scale
+const span = s => s.span || 0.25;
+const BIG = s => s.kind === 'rate' ? 0.4 * span(s) : 0.25;   // EFFECT_BIG
+// s.better: 'up' / 'down' = which way is an improvement (green) vs worse (red); null = neutral
+// neutral stats still split by direction (up / down) so a rise and a fall look different
+const tone = s => !s.better ? (s.delta > 0 ? 'up' : 'down') : (s.delta > 0) === (s.better === 'up') ? 'good' : 'bad';
+const toneCol = t => ({ good: 'var(--status-good)', bad: 'var(--status-critical)', up: 'var(--seq-blue)', down: 'var(--neutral-down)' }[t]);
+const fmtDelta = s => s.kind === 'rate' ? `${s.delta > 0 ? '+' : ''}${Math.round(s.delta * 100)}pt`
+  : s.delta >= 1 ? `×${(1 + s.delta).toFixed(1)}` : `${s.delta > 0 ? '+' : ''}${Math.round(s.delta * 100)}%`;
+const fmtVal = (s, v) => s.kind === 'rate' ? `${Math.round(v * 100)}%`
+  : v >= 1e4 ? (v / 1e3).toFixed(0) + 'k' : v >= 1e3 ? (v / 1e3).toFixed(1) + 'k' : v >= 10 ? Math.round(v) : v.toFixed(1);
+// columns grouped: outcome, cost, thinking, then glitches (unknown keys go last)
+const COL_ORDER = ['pass', 'tests_frac', 'timeout', 'done_wrong', 'stability', 'out_tokens', 'duration', 'steps', 'requests',
+  'reason_req', 'answer_req', 'think_cut', 'think_code', 'copied', 'spill', 'looped', 'loop_stuck', 'malformed', 'syntax', 'tool_err', 'edit_err', 'knows_src', 'recalled', 'fetched'];
+const colIdx = k => { const i = COL_ORDER.indexOf(k); return i < 0 ? 99 : i; };
+const dirNote = s => s.better === 'up' ? '↑ better' : s.better === 'down' ? '↓ better' : 'neutral';
+const BLANK = s => s.kind === 'rate' ? 0.12 * span(s) : 0.05;  // a pooled change this small leaves the cell empty
+// effect size on one scale: a full span of a rate ~ a doubling/halving of a ratio stat
+const sizeOf = s => s.kind === 'rate' ? Math.abs(s.delta) / span(s) : Math.abs(Math.log(1 + s.delta)) / Math.log(2);
+const tf = s => x => s.kind === 'rate' ? x : Math.log(1 + x);
+const back = (s, x) => s.kind === 'rate' ? x : Math.exp(x) - 1;
+// long names are cut off at a max width; the full name goes in a tooltip (title = false
+// when the surrounding cell's own tooltip already starts with it)
+const fxName = (n, title = true) => `<span class="fx-name"${title ? ` title="${esc(n)}"` : ''}>${esc(n)}</span>`;
+// a column's highlight rule, for its header tooltip
+const fxThreshold = (info, level) => `colored when significant at ${level}% and at least ${fmtDelta({ ...info, delta: BLANK(info) }).replace(/^\+/, '±')}`;
+const SE_FLOOR = s => s.kind === 'rate' ? 0.01 * span(s) / 0.25 : 0.01;  // a zero-width interval isn't infinite precision
+// short headers; the full name, direction, scale and the column's spread go in the tooltip
+const SHORT = { pass: 'pass<br>rate', timeout: 'time-<br>outs', out_tokens: 'output<br>tokens', duration: 'duration',
+  steps: 'tries /<br>calls', requests: 'requests', think_cut: 'think<br>cut-offs', reason_req: 'reason<br>/ req', answer_req: 'answer<br>/ req',
+  tests_frac: 'tests<br>passed', malformed: 'mal-<br>formed', tool_err: 'tool<br>errors', edit_err: 'edit<br>errors',
+  done_wrong: 'done<br>wrong', syntax: 'syntax<br>errors', knows_src: 'knows<br>source', recalled: 'recalled<br>solution',
+  fetched: 'fetched<br>source', think_code: 'code in<br>thinking', copied: 'copied<br>from think',
+  spill: 'think<br>spill', looped: 'looped', loop_stuck: 'stuck<br>loop', stability: 'stab-<br>ility' };
+
 function renderSettingsEffects() {
-  const raw = data.settings_effects || [];
-  const esc = v => String(v).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const raw = fxData.settings;
   const axisSel = document.getElementById('fxAxis');
   if (!fxRestored) {
     fxRestored = true;
@@ -2686,10 +3089,6 @@ function renderSettingsEffects() {
   fxSave();
   // the chosen confidence level re-derives each stat's interval, sig and big
   const level = document.getElementById('fxLevel').value || '90';
-  // thresholds for rates scale with the stat's span (EFFECT_RATE_SPAN in generate_viz_data.py:
-  // 25 points for pass/timeout, 5 for cut-off rate); ratios are on one log scale
-  const span = s => s.span || 0.25;
-  const BIG = s => s.kind === 'rate' ? 0.4 * span(s) : 0.25;   // EFFECT_BIG
   const all = raw.map(c => ({ ...c, stats: c.stats.map(s => {
     const [lo, hi] = (s.ci || {})[level] || [s.lo, s.hi];
     const sig = lo > 0 || hi < 0;
@@ -2698,25 +3097,10 @@ function renderSettingsEffects() {
   const single = document.getElementById('fxSingle').checked, weak = document.getElementById('fxWeak').checked;
   const axis = axisSel.value;
   const shown = all.filter(c => (!single || c.axes.length === 1) && (!axis || c.axes.includes(axis)));
-  // s.better: 'up' / 'down' = which way is an improvement (green) vs worse (red); null = neutral
-  const tone = s => !s.better ? 'neutral' : (s.delta > 0) === (s.better === 'up') ? 'good' : 'bad';
-  const toneCol = t => ({ good: 'var(--status-good)', bad: 'var(--status-critical)', neutral: 'var(--seq-blue)' }[t]);
-  const fmtDelta = s => s.kind === 'rate' ? `${s.delta > 0 ? '+' : ''}${Math.round(s.delta * 100)}pt`
-    : s.delta >= 1 ? `×${(1 + s.delta).toFixed(1)}` : `${s.delta > 0 ? '+' : ''}${Math.round(s.delta * 100)}%`;
-  const fmtVal = (s, v) => s.kind === 'rate' ? `${Math.round(v * 100)}%`
-    : v >= 1e4 ? (v / 1e3).toFixed(0) + 'k' : v >= 1e3 ? (v / 1e3).toFixed(1) + 'k' : v >= 10 ? Math.round(v) : v.toFixed(1);
   const statKeys = [], statInfo = {};
   all.forEach(c => c.stats.forEach(s => { if (!(s.key in statInfo)) { statKeys.push(s.key); statInfo[s.key] = s; } }));
-  // columns grouped: outcome, cost, thinking, then glitches (unknown keys go last)
-  const COL_ORDER = ['pass', 'tests_frac', 'timeout', 'done_wrong', 'out_tokens', 'duration', 'steps', 'requests',
-    'reason_req', 'answer_req', 'think_cut', 'malformed', 'syntax', 'tool_err', 'edit_err'];
-  const colIdx = k => { const i = COL_ORDER.indexOf(k); return i < 0 ? 99 : i; };
   statKeys.sort((a, b) => colIdx(a) - colIdx(b));
-  const dirNote = s => s.better === 'up' ? '↑ better' : s.better === 'down' ? '↓ better' : 'neutral';
 
-  const BLANK = s => s.kind === 'rate' ? 0.12 * span(s) : 0.05;  // a pooled change this small leaves the cell empty
-  // effect size on one scale: a full span of a rate ~ a doubling/halving of a ratio stat
-  const sizeOf = s => s.kind === 'rate' ? Math.abs(s.delta) / span(s) : Math.abs(Math.log(1 + s.delta)) / Math.log(2);
   const groupKey = c => c.axes.map(a => `${a} ${c.a[a]}→${c.b[a]}`).join(', ');
   const byGroup = new Map();
   const addTo = (k, c) => { if (!byGroup.has(k)) byGroup.set(k, []); byGroup.get(k).push(c); };
@@ -2740,15 +3124,12 @@ function renderSettingsEffects() {
 
   // A change's effect on a stat across its models: a precision-weighted (fixed-effect)
   // pool. Each model's estimate (points / log ratio) is weighted by its precision (its 90%
-  // bootstrap interval -> standard error), so a tight +43% outweighs a noisy +9% -- same
+  // interval -> standard error), so a tight +43% outweighs a noisy +9% -- same
   // direction, so they add up -- and a noisy +3pt barely dents a -12pt. Solid results in
   // opposite directions (-12 and +12) pool to ~0 and show as purple instead. (Not random
   // effects: that reads +9% vs +43% as disagreement and buries a consistent direction.)
   // Significant at the chosen level: |pooled| / se >= z.
   const Z = { 50: 0.674, 60: 0.842, 70: 1.036, 80: 1.282, 90: 1.645, 95: 1.960, 99: 2.576 }[level];
-  const tf = s => x => s.kind === 'rate' ? x : Math.log(1 + x);
-  const back = (s, x) => s.kind === 'rate' ? x : Math.exp(x) - 1;
-  const SE_FLOOR = s => s.kind === 'rate' ? 0.01 * span(s) / 0.25 : 0.01;  // a zero-width interval isn't infinite precision
   const pool = (cs, sk) => {
     const ss = cs.map(c => ({ c, s: c.stats.find(s => s.key === sk) })).filter(x => x.s);
     if (!ss.length) return null;
@@ -2761,6 +3142,7 @@ function renderSettingsEffects() {
     const m = pts.reduce((a, p, i) => a + ws[i] * p.d, 0) / W;
     const se = 1 / Math.sqrt(W), z = Math.abs(m) / se;
     const med = { ...info, delta: back(info, m) };
+    const ci = [back(info, m - Z * se), back(info, m + Z * se)];
     const conf = z >= Z && Math.abs(med.delta) >= BLANK(info) ? Math.min(1, z / (2 * Z)) : 0;
     // disagreement on direction: each model weighs its size x how clear it is (z vs the bar),
     // so a noisy dissenter barely counts and two solid opposite results make it purple
@@ -2773,7 +3155,7 @@ function renderSettingsEffects() {
     const side = ps => { const w = ps.map(p => 1 / p.se ** 2), Ws = w.reduce((a, x) => a + x, 0);
       return { ...info, delta: back(info, ps.reduce((a, p, i) => a + w[i] * p.d, 0) / Ws) }; };
     const up = pts.filter(p => p.d > 0), dn = pts.filter(p => p.d < 0);
-    return { pts, med, conf, purple, up: up.length ? side(up) : null, dn: dn.length ? side(dn) : null,
+    return { pts, med, ci, conf, purple, up: up.length ? side(up) : null, dn: dn.length ? side(dn) : null,
              score: conf * Math.min(1, sizeOf(med)) };
   };
   // 1-2 model rows (mostly one-model sampler sweeps) need this much total evidence to show
@@ -2784,6 +3166,15 @@ function renderSettingsEffects() {
     .map(r => ({ ...r, strong: r.score > 0 && (nModels(r.cs) >= 3 || r.score >= FEW_MODEL_MIN) }))
     .filter(r => weak || r.strong)
     .sort((a, b) => b.score - a.score || b.cs.length - a.cs.length);
+
+  // Columns ordered by how many shown rows have a colored (significant or split) cell:
+  // those colored in over half the rows first as a block in the fixed COL_ORDER (so the
+  // usual leaders don't shuffle), then the rest by count, ties in COL_ORDER; columns with
+  // none go last, grayed.
+  const hits = Object.fromEntries(statKeys.map(sk => [sk, rows.filter(r => { const p = pool(r.cs, sk); return p && (p.conf > 0 || p.purple >= 50); }).length]));
+  const major = k => hits[k] > rows.length / 2;
+  const colKeys = [...statKeys].sort((a, b) => (major(b) - major(a)) || (major(a) ? 0 : hits[b] - hits[a]) || colIdx(a) - colIdx(b));
+  const loud = new Set(colKeys.filter(k => hits[k] > 0));
 
   // A summary cell: the pooled change. Color = direction (green better / red worse / blue for
   // neutral stats), opacity = size x confidence; solid results in opposite directions turn
@@ -2797,10 +3188,13 @@ function renderSettingsEffects() {
       return `<td><span class="fx-chip" style="background:color-mix(in srgb, #8a6a9a ${Math.round(15 + 25 * p.purple / 100)}%, transparent)">${fmtDelta(p.up).replace(/pt$|%$/, '')} / ${fmtDelta(p.dn)}</span></td>`;
     }
     if (Math.abs(p.med.delta) < BLANK(info)) return '<td></td>';
-    if (!p.conf) return `<td class="fx-meta">${fmtDelta(p.med)}</td>`;
+    const tip = esc(`pooled over ${p.pts.length} comparison${p.pts.length > 1 ? 's' : ''}: ${fmtDelta(p.med)}, ${level}% interval ${fmtDelta({ ...info, delta: p.ci[0] })} … ${fmtDelta({ ...info, delta: p.ci[1] })}` +
+      (p.conf ? '' : '\nnot significant: the interval includes 0'));
+    if (!p.conf) return `<td class="fx-meta" title="${tip}">${fmtDelta(p.med)}</td>`;
     const base = `color-mix(in srgb, #8a6a9a ${p.purple}%, ${toneCol(tone(p.med))})`;
-    const pct = Math.round(10 + 45 * Math.min(1, sizeOf(p.med)) * p.conf);
-    return `<td><span class="fx-chip" style="background:color-mix(in srgb, ${base} ${pct}%, transparent)">${fmtDelta(p.med)}</span></td>`;
+    // floor of 22%: any significant cell must read as colored, not gray
+    const pct = Math.round(22 + 38 * Math.min(1, sizeOf(p.med)) * p.conf);
+    return `<td title="${tip}"><span class="fx-chip" style="background:color-mix(in srgb, ${base} ${pct}%, transparent)">${fmtDelta(p.med)}</span></td>`;
   };
 
   // per-model sub-rows: each cell a small interval plot, on a scale shared down the column
@@ -2831,8 +3225,8 @@ function renderSettingsEffects() {
       fixed ? `same on both sides: ${fixed}` : '',
       c.also_differs?.length ? `also differs between the sides: ${c.also_differs.join(', ')}` : ''].filter(Boolean).join('\n');
     const dot = `<span class="quant-dot" style="background:var(${QUANT_VAR[c.quant] || '--quant-other'})"></span>`;
-      return `<tr class="fx-sub"><td title="${esc(tip)}">${dot}${esc(c.model)}<div class="fx-meta">${c.tasks} tasks</div></td>` +
-      statKeys.map(sk => { const s = c.stats.find(x => x.key === sk); return s ? mini(s, plainCols.has(sk)) : '<td class="fx-mini fx-meta">–</td>'; }).join('') + '</tr>';
+      return `<tr class="fx-sub"><td title="${esc(c.model + '\n' + tip)}">${dot}${fxName(c.model, false)}<div class="fx-meta">${c.tasks} tasks</div></td>` +
+      colKeys.map(sk => { const s = c.stats.find(x => x.key === sk); return s ? mini(s, plainCols.has(sk)) : '<td class="fx-mini fx-meta">–</td>'; }).join('') + '</tr>';
   };
 
   // "+ any other" rows: one sub-row per model, its comparisons (the setting alone, with think
@@ -2843,7 +3237,7 @@ function renderSettingsEffects() {
     return others.length ? '+ ' + others.join(', ') : 'alone';
   };
   const modelRow = (model, mcs, plainCols, axisName) => {
-    const cells = statKeys.map(sk => {
+    const cells = colKeys.map(sk => {
       const ps = mcs.map(c => ({ c, s: c.stats.find(x => x.key === sk) })).filter(x => x.s);
       if (!ps.length) return '<td class="fx-mini fx-meta">–</td>';
       const info = statInfo[sk], f = tf(info);
@@ -2858,7 +3252,7 @@ function renderSettingsEffects() {
     const tasks = mcs.reduce((a, c) => a + c.tasks, 0);
     const tip = mcs.map(c => `${variantLabel(c, axisName)}: ${c.tasks} tasks, ${c.runners.join(', ')}`).join('\n');
     const dot = `<span class="quant-dot" style="background:var(${QUANT_VAR[mcs[0].quant] || '--quant-other'})"></span>`;
-    return `<tr class="fx-sub"><td title="${esc(tip)}">${dot}${esc(model)}<div class="fx-meta">${tasks} tasks · ${esc(mcs.map(c => variantLabel(c, axisName)).sort((a, b) => (a === 'alone' ? -1 : b === 'alone' ? 1 : a.localeCompare(b))).join(' · '))}</div></td>${cells}</tr>`;
+    return `<tr class="fx-sub"><td title="${esc(model + '\n' + tip)}">${dot}${fxName(model, false)}<div class="fx-meta">${tasks} tasks · ${esc(mcs.map(c => variantLabel(c, axisName)).sort((a, b) => (a === 'alone' ? -1 : b === 'alone' ? 1 : a.localeCompare(b))).join(' · '))}</div></td>${cells}</tr>`;
   };
 
   // "N × M tasks" = N models, M shared tasks per model on average; the tooltip has each
@@ -2868,20 +3262,16 @@ function renderSettingsEffects() {
     return [...t].sort((a, b) => b[1] - a[1]).map(([m, n]) => `${m}: ${n} tasks`).join('\n');
   };
   const tbl = document.getElementById('fxAxes');
-  // short headers; the full name, direction, scale and the column's spread go in the tooltip
-  const SHORT = { pass: 'pass<br>rate', timeout: 'time-<br>outs', out_tokens: 'output<br>tokens', duration: 'duration',
-    steps: 'tries /<br>calls', requests: 'requests', think_cut: 'think<br>cut-offs', reason_req: 'reason<br>/ req', answer_req: 'answer<br>/ req',
-    tests_frac: 'tests<br>passed', malformed: 'mal-<br>formed', tool_err: 'tool<br>errors', edit_err: 'edit<br>errors',
-    done_wrong: 'done<br>wrong', syntax: 'syntax<br>errors' };
   const headTip = k => {
     const info = statInfo[k], vals = shown.flatMap(c => c.stats.filter(s => s.key === k));
     const ds = vals.map(s => s.delta).sort((a, b) => a - b);
-    return [info.label, dirNote(info) === 'neutral' ? 'neutral: no better direction' : `${dirNote(info)} (green = better, red = worse)`,
+    return [info.label, dirNote(info) === 'neutral' ? 'neutral: no better direction (blue = up, teal = down)' : `${dirNote(info)} (green = better, red = worse)`,
+      fxThreshold(info, level),
       info.kind === 'rate' ? `change in percentage points; full-strength color at ${Math.round(span(info) * 100)} points`
         : 'B vs A as a per-task ratio; full-strength color at ×2 / ÷2',
       ds.length ? `${ds.length} comparisons measure it: ${fmtDelta({ ...info, delta: ds[0] })} … ${fmtDelta({ ...info, delta: ds[ds.length - 1] })} (median ${fmtDelta({ ...info, delta: ds[ds.length >> 1] })}), ${vals.filter(s => s.sig).length} outside noise` : 'no data'].join('\n');
   };
-  tbl.innerHTML = rows.length ? `<tr><th>change (models) — click to expand</th>${statKeys.map(k => `<th title="${esc(headTip(k))}">${SHORT[k] || esc(statInfo[k].label)}</th>`).join('')}</tr>` +
+  tbl.innerHTML = rows.length ? `<tr><th>change (models) — click to expand</th>${colKeys.map(k => `<th title="${esc(headTip(k) + `\n${hits[k]} of ${rows.length} rows shown have it colored`)}"${loud.has(k) ? '' : ' class="fx-quiet"'}>${SHORT[k] || esc(statInfo[k].label)}</th>`).join('')}</tr>` +
     rows.map(({ cs, key, strong, any }) => {
       const open = fxOpen.has(key);
       const also = [...new Set(cs.flatMap(c => c.also_differs || []))];
@@ -2889,10 +3279,10 @@ function renderSettingsEffects() {
       return `<tr class="fx-row${strong ? '' : ' fx-weak'}" data-fx="${esc(key)}"><td${tip}><span class="fx-caret">${open ? '▾' : '▸'}</span> ${esc(any ? key.slice(0, -ANY.length) : key)}${any ? ' <span class="fx-tag" title="pools every comparison containing this change, whatever else changed with it">+ any other</span>' : ''} <span class="fx-count" title="${esc(countTip(cs))}">${nModels(cs)} × ${Math.round(cs.reduce((a, c) => a + c.tasks, 0) / nModels(cs))} tasks</span>` +
         (any ? `<div class="fx-meta fx-variants">${esc([...new Set(cs.map(c => variantLabel(c, key.split(' ')[0])))].sort((a, b) => (a === 'alone' ? -1 : b === 'alone' ? 1 : a.localeCompare(b))).join(' · '))}</div>` : '') +
         `${also.length && !any ? ` <span class="fx-tag" title="settings that also differ between the two sides in some of these">+${esc(also.join(', '))}</span>` : ''}` +
-        `</td>${statKeys.map(sk => cell(cs, sk)).join('')}</tr>` +
+        `</td>${colKeys.map(sk => cell(cs, sk)).join('')}</tr>` +
         (open ? (() => {
           // a column where no model is outside noise just shows numbers, no plots
-          const plain = new Set(statKeys.filter(sk => !cs.some(c => c.stats.some(s => s.key === sk && s.sig))));
+          const plain = new Set(colKeys.filter(sk => !cs.some(c => c.stats.some(s => s.key === sk && s.sig))));
           if (any) {
             const axisName = key.split(' ')[0], byModel = new Map();
             cs.forEach(c => { if (!byModel.has(c.model)) byModel.set(c.model, []); byModel.get(c.model).push(c); });
@@ -2901,6 +3291,121 @@ function renderSettingsEffects() {
           return cs.slice().sort((a, b) => a.model.localeCompare(b.model)).map(c => subRow(c, plain)).join('');
         })() : '');
     }).join('') : '<tr><td class="fx-meta">No changes match.</td></tr>';
+}
+
+// ---- standouts: each model / test (and groups) against the rest ----
+const SO_STORAGE_KEY = 'evalViz.standouts';
+const soOpen = new Set();
+let soInit = false;
+function renderStandouts() {
+  const kindEl = () => document.querySelector('input[name="soKind"]:checked');
+  const ids = ['soWhich', 'soAll', 'soLevel', 'soAbs'];
+  if (!soInit) {
+    soInit = true;
+    try {
+      const st = JSON.parse(localStorage.getItem(SO_STORAGE_KEY) || 'null');
+      if (st) {
+        const r = document.querySelector(`input[name="soKind"][value="${st.kind}"]`);
+        if (r) r.checked = true;
+        document.getElementById('soWhich').value = st.which || '';
+        document.getElementById('soAll').checked = !!st.all;
+        document.getElementById('soAbs').checked = !!st.abs;
+        if (st.level) document.getElementById('soLevel').value = st.level;
+        (st.open || []).forEach(k => soOpen.add(k));
+      }
+    } catch (e) { /* storage unavailable */ }
+    ids.forEach(id => document.getElementById(id).addEventListener('change', renderStandouts));
+    document.querySelectorAll('input[name="soKind"]').forEach(r => r.addEventListener('change', renderStandouts));
+    document.getElementById('soTable').addEventListener('click', e => {
+      const tr = e.target.closest('tr[data-so]');
+      if (!tr) return;
+      const k = tr.dataset.so;
+      soOpen.has(k) ? soOpen.delete(k) : soOpen.add(k);
+      renderStandouts();
+    });
+  }
+  const kind = kindEl()?.value || 'models';
+  const which = document.getElementById('soWhich').value, showAll = document.getElementById('soAll').checked;
+  const level = document.getElementById('soLevel').value || '95';
+  const abs = document.getElementById('soAbs').checked;
+  // the cell's text: its difference from the rest, or its own value with the difference in the tooltip
+  const shown = s => abs ? fmtVal(s, s.b) : fmtDelta(s);
+  const diffTip = s => abs ? `\n${fmtDelta(s)} vs ${s.point ? 'its usual' : 'the rest'}` : '';
+  try {
+    localStorage.setItem(SO_STORAGE_KEY, JSON.stringify({ kind, which, all: showAll, abs, level, open: [...soOpen] }));
+  } catch (e) { /* storage unavailable */ }
+  const Z = { 50: 0.674, 60: 0.842, 70: 1.036, 80: 1.282, 90: 1.645, 95: 1.960, 99: 2.576 }[level];
+  // each stat at the chosen level: interval, sig, and how clearly past the bar (0..1)
+  const items = (fxData.standouts[kind] || []).map(it => ({ ...it, stats: it.stats.map(s => {
+    const [lo, hi] = (s.ci || {})[level] || [s.lo, s.hi];
+    const f = tf(s), [l90, h90] = (s.ci || {})['90'] || [s.lo, s.hi];
+    const se = Math.max(SE_FLOOR(s), (f(h90) - f(l90)) / (2 * 1.645));
+    const sig = (lo > 0 || hi < 0) && Math.abs(s.delta) >= BLANK(s);
+    return { ...s, lo, hi, sig, conf: sig ? Math.min(1, Math.abs(f(s.delta)) / se / (2 * Z)) : 0 };
+  }) }));
+  const byLabel = new Map(items.filter(it => !it.group).map(it => [it.label, it]));
+  const statInfo = {};
+  items.forEach(it => it.stats.forEach(s => { statInfo[s.key] = statInfo[s.key] || s; }));
+  const score = it => it.stats.reduce((a, s) => a + s.conf * Math.min(1, sizeOf(s)), 0);
+  const rows = items.filter(it => !which || (which === 'group') === it.group)
+    .map(it => ({ it, score: score(it) })).filter(r => showAll || r.score > 0)
+    .sort((a, b) => b.score - a.score || a.it.label.localeCompare(b.it.label));
+  // columns as in the settings table: colored in over half the rows first (fixed order),
+  // then by count, ties in fixed order; none last, grayed
+  const keys = Object.keys(statInfo);
+  const hits = Object.fromEntries(keys.map(k => [k, rows.filter(r => r.it.stats.some(s => s.key === k && s.sig)).length]));
+  const major = k => hits[k] > rows.length / 2;
+  const cols = keys.sort((a, b) => (major(b) - major(a)) || (major(a) ? 0 : hits[b] - hits[a]) || colIdx(a) - colIdx(b));
+  const unit = kind === 'models' ? 'tasks' : 'models';
+  const cell = s => {
+    if (!s) return '<td class="fx-meta">–</td>';
+    if (Math.abs(s.delta) < BLANK(s)) return `<td${abs ? ' class="fx-meta"' : ''} title="${esc(`${fmtVal(s, s.a)} (rest) → ${fmtVal(s, s.b)}: too small to show, ${s.n} ${unit}`)}">${abs ? fmtVal(s, s.b) : ''}</td>`;
+    const tip = esc(`${fmtVal(s, s.a)} (rest) → ${fmtVal(s, s.b)}, ${level}% interval ${fmtDelta({ ...s, delta: s.lo })} … ${fmtDelta({ ...s, delta: s.hi })}, ${s.n} ${unit}` +
+      (s.sig ? '' : `\nnot significant: the interval includes 0${Math.abs(s.delta) < BLANK(s) ? ' (or the change is too small)' : ''}`) + diffTip(s));
+    if (!s.sig) return `<td class="fx-meta" title="${tip}">${shown(s)}</td>`;
+    const pct = Math.round(22 + 38 * Math.min(1, sizeOf(s)) * s.conf);  // floor: see the settings table
+    return `<td title="${tip}">` +
+      `<span class="fx-chip" style="background:color-mix(in srgb, ${toneCol(tone(s))} ${pct}%, transparent)">${shown(s)}</span></td>`;
+  };
+  // what a row expands to: a model group's members (each vs the rest, with its interval),
+  // or for a test / test group each model's own difference vs its usual (one point, no
+  // interval: one model's attempts at one test; colored when past the column's big mark)
+  const subItems = it => it.perModel
+    ? it.perModel.map(u => ({ label: u.model, quant: u.quant, units: u.n, unitWord: 'attempts', stats: (data.fx.stats).map((st, i) => {
+        const a = u.a[i], b = u.b[i];
+        if (a == null || b == null || (st.kind === 'ratio' && !(a > 0 && b > 0))) return null;
+        const delta = st.kind === 'rate' ? b - a : b / a - 1;
+        return { ...st, a, b, delta, lo: delta, hi: delta, sig: Math.abs(delta) >= BIG(st), point: true };
+      }).filter(Boolean) }))
+    : it.members.map(m => byLabel.get(m)).filter(Boolean);
+  const expandable = it => it.group || !!it.perModel;
+  // sub-rows: a small interval plot per stat, scale shared down the column
+  const half = {};
+  for (const r of rows) if (soOpen.has(r.it.label)) for (const m of subItems(r.it)) for (const s of m.stats) {
+    const f = tf(s), v = Math.max(Math.abs(f(s.lo)), Math.abs(f(s.hi)), Math.abs(f(s.delta)));
+    half[s.key] = Math.max(half[s.key] || (s.kind === 'rate' ? 0.4 * span(s) : Math.log(1.25)), Math.min(v, s.kind === 'rate' ? 1 : Math.log(8)));
+  }
+  const mini = s => {
+    if (!s) return '<td class="fx-mini fx-meta">–</td>';
+    const f = tf(s), h = half[s.key], p = x => 50 + 50 * Math.max(-1, Math.min(1, f(x) / h));
+    const col = s.sig ? toneCol(tone(s)) : 'var(--text-muted)';
+    return `<td class="fx-mini" title="${esc(`${fmtVal(s, s.a)} (${s.point ? 'its usual' : 'rest'}) → ${fmtVal(s, s.b)}` + (s.point ? '' : `, ${s.n} ${unit}`) + diffTip(s))}"><div class="fx-bar"><div class="zero"></div>` +
+      `<div class="ci" style="left:${p(s.lo)}%;width:${Math.max(1, p(s.hi) - p(s.lo))}%"></div><div class="pt" style="left:${p(s.delta)}%;background:${col}"></div></div>` +
+      `<div class="${s.sig ? '' : 'fx-meta'}">${shown(s)}</div></td>`;
+  };
+  const dot = it => it.quant ? `<span class="quant-dot" style="background:var(${QUANT_VAR[it.quant] || '--quant-other'})"></span>` : '';
+  const tbl = document.getElementById('soTable');
+  tbl.innerHTML = rows.length ? `<tr><th>${kind === 'models' ? 'model — groups expand' : 'test — click for each model'}</th>${cols.map(k => `<th title="${esc(statInfo[k].label + '\n' + dirNote(statInfo[k]) + '\n' + fxThreshold(statInfo[k], level) + `\n${hits[k]} of ${rows.length} rows shown have it colored`)}"${hits[k] ? '' : ' class="fx-quiet"'}>${SHORT[k] || esc(statInfo[k].label)}</th>`).join('')}</tr>` +
+    rows.map(({ it }) => {
+      const exp = expandable(it), open = exp && soOpen.has(it.label);
+      const head = `<tr class="${exp ? 'fx-row' : ''}"${exp ? ` data-so="${esc(it.label)}"` : ''}><td title="${esc(it.group ? it.members.join('\n') : '')}">` +
+        `${exp ? `<span class="fx-caret">${open ? '▾' : '▸'}</span> ` : ''}${dot(it)}${it.group ? esc(it.label) : fxName(it.label)}` +
+        `${it.group ? ` <span class="fx-tag">group of ${it.members.length}</span>` : ''}<span class="fx-count">${it.units} ${unit}</span></td>` +
+        cols.map(k => cell(it.stats.find(s => s.key === k))).join('') + '</tr>';
+      if (!open) return head;
+      return head + subItems(it).sort((a, b) => a.label.localeCompare(b.label)).map(m =>
+        `<tr class="fx-sub"><td>${dot(m)}${fxName(m.label)}<div class="fx-meta">${m.units} ${(m.unitWord || unit).replace(/s$/, m.units === 1 ? '' : 's')}</div></td>${cols.map(k => mini(m.stats.find(s => s.key === k))).join('')}</tr>`).join('');
+    }).join('') : '<tr><td class="fx-meta">Nothing stands out.</td></tr>';
 }
 
 function applyFilters() {
@@ -2917,7 +3422,7 @@ function applyFilters() {
   const usefulnessFiltered = data.usefulness.exercises.filter(e => inView(e.label));
   const detailFiltered = data.detail.filter(d => {
     const t = Date.parse(d.timestamp);
-    return activeModels.has(d.model) && inView(d.label) && t >= dateFrom && t <= dateTo;
+    return modelInView(d.model) && inView(d.label) && t >= dateFrom && t <= dateTo;
   });
 
   renderChart1(chart1Data);
@@ -2930,6 +3435,9 @@ function applyFilters() {
   renderEndingsSection(cost, chart1Data);
   renderUsefulnessSection(usefulnessFiltered);
   renderDetailTable(detailFiltered);
+  fxCompute();
+  renderSettingsEffects();
+  renderStandouts();
   updateFilterFab();
   renderModelList();
 }
@@ -2946,12 +3454,24 @@ function setsEqual(a, b) {
 function updateFilterFab() {
   const dateNarrowed = dateFrom > minTs || dateTo < maxTs;
   const atDefault = !dateNarrowed && activeModels.size === data.matrix_models.length
-    && setsEqual(activeExercises, new Set(data.default_exercises)) && !disabledRunners.size;
+    && setsEqual(activeExercises, new Set(data.default_exercises)) && !disabledRunners.size && !maskedGroups.size && !groupState.size;
   filterFab.classList.toggle('active', !atDefault);
   filterFab.textContent = atDefault ? 'Filter' : `Filter (${activeModels.size}/${data.matrix_models.length}, ${activeExercises.size}/${exerciseLabels.length}${dateNarrowed ? ', date' : ''})`;
 }
-filterFab.addEventListener('click', () => filterPanel.classList.toggle('open'));
-document.getElementById('filterPanelClose').addEventListener('click', () => filterPanel.classList.remove('open'));
+// open/closed survives a reload; a click anywhere outside the panel closes it
+const PANEL_OPEN_KEY = 'eval-viz-filter-open';
+const setPanelOpen = open => {
+  filterPanel.classList.toggle('open', open);
+  try { localStorage.setItem(PANEL_OPEN_KEY, open ? '1' : ''); } catch (e) {}
+};
+try { if (localStorage.getItem(PANEL_OPEN_KEY)) filterPanel.classList.add('open'); } catch (e) {}
+filterFab.addEventListener('click', () => setPanelOpen(!filterPanel.classList.contains('open')));
+document.getElementById('filterPanelClose').addEventListener('click', () => setPanelOpen(false));
+// mousedown, not click: the panel re-renders its lists on change, so by click time the
+// clicked checkbox may already be detached and look like it was "outside"
+document.addEventListener('mousedown', e => {
+  if (filterPanel.classList.contains('open') && !filterPanel.contains(e.target) && !filterFab.contains(e.target)) setPanelOpen(false);
+});
 
 // Model list: search-filterable, same pattern as the exercise list below — "All
 // shown"/"None shown" operate on whatever the search box currently matches, not the
@@ -2990,6 +3510,7 @@ function renderModelList() {
       ).join('')
     : '<p style="font-size:12px;color:var(--text-muted);margin:4px 0;">No models match.</p>';
   renderModelCount();
+  renderGroupMasks();  // member counts follow the model selection
 }
 modelListEl.addEventListener('change', e => {
   if (!e.target.classList.contains('model-cb')) return;
@@ -3015,7 +3536,7 @@ function renderSettingsList() {
     if (values.length < 2) return '';  // not differentiating
     return `<div class="settings-row"><span class="settings-key">${k}</span>${values.map(v => {
       const ms_ = modelsWithSetting(k, v), on = ms_.filter(m => activeModels.has(m)).length;
-      return `<span class="settings-chip" title="${ms_.join('\n')}">${v}<span class="filter-run-count">${on}/${ms_.length}</span>` +
+      return `<span class="settings-chip${on ? '' : ' none'}" title="${ms_.join('\n')}">${v}<span class="filter-run-count">${on}/${ms_.length}</span>` +
         `<button type="button" data-k="${k}" data-v="${v}" data-on="1" title="Check all models with ${k}=${v}">✓</button>` +
         `<button type="button" data-k="${k}" data-v="${v}" data-on="0" title="Uncheck all models with ${k}=${v}">✗</button></span>`;
     }).join('')}</div>`;
@@ -3081,7 +3602,7 @@ const variantByLabel = new Map(data.usefulness.exercises.map(e => [e.label, e.va
 // changes — so "min runs" answers "how much data do the models I'm comparing have here".
 let attemptsByLabel = new Map();
 function recomputeAttempts() {
-  const idx = data.matrix_models.map((m, i) => activeModels.has(m) ? i : -1).filter(i => i >= 0);
+  const idx = data.matrix_models.map((m, i) => modelInView(m) ? i : -1).filter(i => i >= 0);
   attemptsByLabel = new Map(data.matrix.map(r =>
     [r.label, idx.filter(i => r.cells[i] && r.cells[i].total > 0).length]));
 }
@@ -3141,7 +3662,7 @@ function setShownExercises(checked, only = false) {
 const testListSelect = document.getElementById('testListSelect');
 const testLists = data.test_lists || [];
 testListSelect.innerHTML = '<option value="all">All exercises (no list filter)</option>' + (testLists.length
-  ? testLists.map((l, i) => `<option value="${i}">List: ${l.name} (${l.exercises.length}${l.missing ? `, +${l.missing} not run yet` : ''})</option>`).join('')
+  ? testLists.map((l, i) => `<option value="${i}">${l.name} (${l.exercises.length}${l.missing ? `, +${l.missing} not run yet` : ''})</option>`).join('')
   : '');
 // Choosing a list also narrows the checkbox list above to that list's exercises.
 testListSelect.addEventListener('change', renderExerciseList);
@@ -3160,7 +3681,7 @@ document.getElementById('exercisesDefaultBtn').addEventListener('click', resetEx
 document.getElementById('exercisesAllBtn').addEventListener('click', () => setShownExercises(true));
 document.getElementById('exercisesNoneBtn').addEventListener('click', () => setShownExercises(false));
 document.getElementById('exercisesCommonBtn').addEventListener('click', () => {
-  const idx = data.matrix_models.map((m, i) => activeModels.has(m) ? i : -1).filter(i => i >= 0);
+  const idx = data.matrix_models.map((m, i) => modelInView(m) ? i : -1).filter(i => i >= 0);
   const covered = data.matrix.filter(r => idx.every(i => r.cells[i] && r.cells[i].total > 0)).map(r => r.label);
   activeExercises = new Set(idx.length ? covered : []);
   // Name the models limiting the result, so a tiny answer is explainable.
@@ -3199,6 +3720,71 @@ runnerListEl.addEventListener('change', e => {
   renderRunnerList();
   applyFilters();
 });
+function renderGroupMasks() {
+  // a group with no selected models has nothing to mask, so it's left out (unless masked)
+  // counts read in-view/selected/total: in-view = selected and not hidden by any mask
+  const cnt = ms => { const sel = ms.filter(m => activeModels.has(m)).length; return [sel, `${ms.filter(modelInView).length}/${sel}/${ms.length}`]; };
+  const item = g => {
+    const ms = g.models || groupModels(g), [on, counts] = cnt(ms);
+    if (!on && !maskedGroups.has(g.label)) return '';
+    const dot = g.quant ? `<span class="quant-dot" style="background:var(${QUANT_VAR[g.quant] || '--quant-other'})"></span>` : '';
+    return `<label class="filter-item${on ? '' : ' mask-zero'}" title="${ms.join('\n')}"><input type="checkbox" class="group-cb" value="${g.label}" ${maskedGroups.has(g.label) ? '' : 'checked'}>${dot}<span class="label-text">${g.label}</span> <span class="filter-run-count">(${counts})</span></label>`;
+  };
+  const TRI = { in: ['✓', 'included: only models in an included group are shown'], out: ['✗', 'excluded: its models are hidden'] };
+  const tri = g => {
+    const ms = groupModels(g), [on, counts] = cnt(ms), st = groupState.get(g.label);
+    if (!on && !st) return '';
+    return `<label class="filter-item${on ? '' : ' mask-zero'}" title="${esc((st ? TRI[st][1] + '\n' : 'click: include → exclude → neither\n') + ms.join('\n'))}"><button type="button" class="tri-cb ${st || ''}" data-group="${esc(g.label)}">${st ? TRI[st][0] : ''}</button><span class="label-text">${g.label}</span> <span class="filter-run-count">(${counts})</span></label>`;
+  };
+  const gs = data.fx.model_groups;
+  const list = sec => gs.filter(g => sectionOf(g) === sec).map(item).join('') + item({ label: OTHER[sec], models: ungrouped(sec) });
+  document.getElementById('groupMaskList').innerHTML = gs.filter(g => sectionOf(g) === 'groups').map(tri).join('');
+  document.getElementById('quantMaskList').innerHTML = list('quants') + '<div class="filter-mask-sub">Quant method</div>' + list('methods');
+  for (const k of SETTING_MASKS) {
+    const vals = settingValues(k);
+    document.getElementById(`${k}MaskList`).innerHTML = vals.length < 2 ? '' : vals.map(v => {
+      const ms = data.matrix_models.filter(m => settingVals(m, k).includes(v)), [on, counts] = cnt(ms), id = `${k}:${v}`;
+      if (!on && !maskedGroups.has(id)) return '';
+      return `<label class="filter-item${on ? '' : ' mask-zero'}" title="${esc(ms.join('\n'))}"><input type="checkbox" class="group-cb" value="${esc(id)}" ${maskedGroups.has(id) ? '' : 'checked'}><span class="label-text">${esc(v)}</span> <span class="filter-run-count">(${counts})</span></label>`;
+    }).join('');
+  }
+  document.getElementById('groupMaskCount').textContent = maskedModels.size ? `(${maskedModels.size} models hidden)` : '';
+}
+document.querySelector('.filter-mask-cols').addEventListener('change', e => {
+  if (!e.target.classList.contains('group-cb')) return;
+  if (e.target.checked) maskedGroups.delete(e.target.value); else maskedGroups.add(e.target.value);
+  recomputeMaskedModels(); recomputeAttempts();
+  renderGroupMasks(); renderExerciseList(); applyFilters();
+});
+// All / None per mask column: ticks or unticks every box listed there (model groups: Reset)
+document.querySelector('.filter-mask-cols').addEventListener('click', e => {
+  const t = e.target.closest('.tri-cb, .filter-item:has(.tri-cb)');
+  if (t) {
+    e.preventDefault();  // a <label>: stop it re-firing the click on its button
+    const g = (t.dataset.group ? t : t.querySelector('.tri-cb')).dataset.group, st = groupState.get(g);
+    if (!st) groupState.set(g, 'in'); else if (st === 'in') groupState.set(g, 'out'); else groupState.delete(g);
+    recomputeMaskedModels(); recomputeAttempts();
+    renderGroupMasks(); renderExerciseList(); applyFilters();
+    return;
+  }
+  const b = e.target.closest('[data-mask]');
+  if (!b) return;
+  if (b.dataset.mask === 'groupMaskList') groupState.clear();
+  const on = b.dataset.on === '1';
+  document.getElementById(b.dataset.mask).querySelectorAll('input[type=checkbox]:not(:disabled)').forEach(cb => {
+    if (cb.classList.contains('runner-cb')) on ? disabledRunners.delete(cb.value) : disabledRunners.add(cb.value);
+    else on ? maskedGroups.delete(cb.value) : maskedGroups.add(cb.value);
+  });
+  recomputeMaskedModels(); recomputeAttempts();
+  renderGroupMasks(); renderExerciseList(); applyFilters();
+});
+document.getElementById('masksClearBtn').addEventListener('click', () => {
+  disabledRunners.clear(); maskedGroups.clear(); groupState.clear();
+  recomputeMaskedModels(); recomputeAttempts();
+  renderGroupMasks(); renderExerciseList(); applyFilters();
+});
+recomputeMaskedModels(); recomputeAttempts();
+renderGroupMasks();
 renderExerciseList();  // first render; also fills the runner list
 
 // Two overlapping native range inputs, thumbs styled to pointer-events:auto so each
@@ -3241,7 +3827,6 @@ updateDateLabel();
   document.getElementById(id).addEventListener(id === 'exerciseSortBy' ? 'change' : 'input', saveFiltersToStorage));
 
 renderRecentRuns();
-renderSettingsEffects();
 applyFilters();
 </script>
 </body>
