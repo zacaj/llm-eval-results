@@ -437,21 +437,56 @@ def _per_req(a, col):
     return v / n if n and v is not None else None
 
 
+# Floor on a single turn's output tokens (5th percentile of tokens / turn over all attempts with
+# request counts, set by fx_export): a turn can't be arbitrarily short, so net_tokens only
+# counts what a run wrote beyond that.
+_TOK_FLOOR = 0.0
+
+
+def _net_tokens(a):
+    n, t = _px(a, 'px_requests'), a['out_tokens']
+    return max(1.0, t - n * _TOK_FLOOR) if n and t else None
+
+
+def _capability(a):
+    """One 0-1 capability number per attempt: mostly the share of tests passed (aider has no
+    per-test counts: its pass/fail stands in), plus credit for a full pass, a little for not
+    timing out, minus a penalty for declaring done with tests failing (confidently wrong is
+    worse than just not finishing) and a small one for a pass that took more tries / test calls
+    than the task's average (a['steps_rel'], set in fx_export)."""
+    passed = float(a['pass'])
+    tf = _px(a, 'tests_frac_adj') if _px(a, 'tests_frac_adj') is not None else _px(a, 'tests_frac')
+    if tf is None:
+        tf = passed
+    v = 0.65 * tf + 0.30 * passed + 0.05 * (1 - float(a['timed_out']))
+    if a['runner'] == 'harbor' and a['end_reason'] == 'done_wrong':
+        v -= 0.15
+    rel = a.get('steps_rel')
+    if passed and rel is not None:
+        v -= 0.05 * min(1.0, max(0.0, rel - 1))
+    return max(0.0, min(1.0, v))
+
+
 # better: which way is an improvement ('up' / 'down'), or None for a diagnostic with no
 # good direction (more reasoning per request is neither better nor worse by itself)
 EFFECT_STATS = [
+    ('capability', 'capability score (tests passed, pass, done-wrong, tries)', 'rate', 'up', _capability),
     ('pass', 'pass rate', 'rate', 'up', lambda a: float(a['pass'])),
     ('timeout', 'timeout rate', 'rate', 'down', lambda a: float(a['timed_out'])),
     ('out_tokens', 'output tokens', 'ratio', 'down', lambda a: a['out_tokens'] or None),
     ('duration', 'duration', 'ratio', 'down', lambda a: a['duration'] or None),
-    ('steps', 'tries / test calls', 'ratio', 'down', lambda a: a['steps'] or None),
-    ('requests', 'requests', 'ratio', 'down', lambda a: _px(a, 'px_requests') or None),
+    # counts keep a real 0 (an agent that never called run-tests): None means not measured
+    ('steps', 'tries / test calls', 'ratio', 'down', lambda a: a['steps']),
+    ('net_tokens', 'net output tokens (tokens minus a per-turn floor)', 'ratio', 'down', _net_tokens),
+    ('requests', 'turns (model requests)', 'ratio', 'down', lambda a: _px(a, 'px_requests')),
+    ('tok_req', 'output tokens / turn', 'ratio', None,
+     lambda a: a['out_tokens'] / _px(a, 'px_requests') if a['out_tokens'] and _px(a, 'px_requests') else None),
     ('think_cut', 'thinking cut-off rate', 'rate', 'down',
      lambda a: a['think_cuts'] / a['think_blocks'] if a['think_blocks'] else None),
     # reasoning style / degeneration (Harbor: Claude Code logs keep the thinking text)
-    ('think_code', 'share of thinking that is code (Harbor)', 'rate', None,
+    ('think_code', 'share of thinking that is code (Harbor)', 'rate', 'down',
      lambda a: _px(a, 'think_code_chars') / _px(a, 'think_chars') if _px(a, 'think_chars') else None),
-    ('copied', 'big writes copied from thinking (Harbor)', 'rate', None,
+    ('copied', 'big writes copied from thinking (Harbor)', 'rate', 'down',
      lambda a: _px(a, 'writes_from_think') / _px(a, 'big_writes') if _px(a, 'big_writes') else None),
     ('spill', 'attempts where thinking spilled into the answer (Harbor)', 'rate', 'down',
      lambda a: float('think_spill' in a['flags']) if a['runner'] == 'harbor' else None),
@@ -462,6 +497,8 @@ EFFECT_STATS = [
     # glitch / quality counters (None where a runner doesn't record them)
     ('tests_frac', 'tests passed (fraction, Harbor)', 'rate', 'up',
      lambda a: _px(a, 'tests_frac_adj') if _px(a, 'tests_frac_adj') is not None else _px(a, 'tests_frac')),
+    ('own_tests', 'attempts that wrote their own tests (Harbor)', 'rate', None,
+     lambda a: float('wrote_tests' in a['flags']) if a['runner'] == 'harbor' else None),
     ('malformed', 'attempts with malformed calls / edits', 'rate', 'down', lambda a: float('malformed' in a['flags'])),
     # one number for all degeneration signs above, weighted by severity (outcomes.GLITCH_WEIGHTS);
     # test results don't enter it. Aider can't see loops / spills, so compare within a runner.
@@ -469,8 +506,10 @@ EFFECT_STATS = [
      lambda a: None if a['end_reason'] == 'harness' else 1 - outcomes.instability(a['flags'], a['end_reason'])),
     ('tool_err', 'tool calls that errored (Harbor)', 'rate', 'down',
      lambda a: _px(a, 'tool_errors') / _px(a, 'tool_calls') if _px(a, 'tool_calls') else None),
-    ('edit_err', 'edits that failed (Harbor)', 'rate', 'down',
-     lambda a: _px(a, 'edit_errors') / _px(a, 'edits') if _px(a, 'edits') else None),
+    ('edit_err', 'attempts with failed edits (Harbor)', 'rate', 'down',
+     lambda a: float('edit_errors' in a['flags']) if a['runner'] == 'harbor' else None),
+    ('glitch_end', 'attempts that ended in a glitch (broken output / raw tool markup)', 'rate', 'down',
+     lambda a: float(a['end_reason'] == 'glitch' or 'markup_final' in a['flags'])),
     ('done_wrong', 'declared done with tests failing (Harbor)', 'rate', 'down',
      lambda a: float(a['end_reason'] == 'done_wrong') if a['runner'] == 'harbor' else None),
     ('syntax', 'attempts with syntax / lint errors (aider)', 'rate', 'down',
@@ -485,8 +524,8 @@ EFFECT_STATS = [
      lambda a: float(bool({'recalled_content', 'recalled_inferred'} & a['flags']))),
     ('fetched', 'fetched upstream files / outside URLs', 'rate', 'down',
      lambda a: float(bool({'fetched_source', 'internet'} & a['flags'])) if a['runner'] == 'harbor' else None),
-    ('reason_req', 'reasoning tok / request', 'ratio', None, lambda a: _per_req(a, 'px_reasoning_tokens') or None),
-    ('answer_req', 'answer tok / request', 'ratio', None, lambda a: _per_req(a, 'px_answer_tokens') or None),
+    ('reason_req', 'reasoning tokens / turn', 'ratio', None, lambda a: _per_req(a, 'px_reasoning_tokens') or None),
+    ('answer_req', 'answer tokens / turn', 'ratio', None, lambda a: _per_req(a, 'px_answer_tokens') or None),
 ]
 # a rate stat's natural range: the change that counts as a full-size effect (the page's
 # thresholds scale with it). Cut-off rates live in 0-10%, so 25 points would make every
@@ -550,6 +589,18 @@ def fx_export(attempts):
     see fxCompute in the template). Every stat's per-attempt value is computed here
     (EFFECT_STATS), so the page needs no raw columns. Settings combos are deduplicated."""
     combos, combo_idx, recs = [], {}, []
+    global _TOK_FLOOR
+    tpr = sorted(a['out_tokens'] / _px(a, 'px_requests') for a in attempts if a['out_tokens'] and _px(a, 'px_requests'))
+    _TOK_FLOOR = tpr[int(0.05 * len(tpr))] if tpr else 0.0
+    # tries / test calls relative to the task's average (same task + runner), for the capability score
+    sums = defaultdict(lambda: [0.0, 0])
+    for a in attempts:
+        if a['steps']:
+            k_ = (a['task'], a['runner'], a['variant'])
+            sums[k_][0] += a['steps']; sums[k_][1] += 1
+    for a in attempts:
+        m_ = sums.get((a['task'], a['runner'], a['variant']))
+        a['steps_rel'] = a['steps'] / (m_[0] / m_[1]) if a['steps'] and m_ else None
     for a in attempts:
         st = tuple(sorted((a['raw'].get('_settings') or {}).items()))
         if st not in combo_idx:
@@ -763,6 +814,7 @@ def build_dataset(rows, excluded_harness=0):
             'label': pin_label[row['task']],
             'think_blocks': row['think_blocks'], 'think_cuts': row['think_cuts'],
             'tokens': row['out_tokens'],
+            'requests': _px(row, 'px_requests') or None,  # Harbor only; aider rows carry no proxy counts
         })
     detail.sort(key=lambda d: (d['exercise'], d['model']))
 
@@ -984,8 +1036,26 @@ def build_dataset(rows, excluded_harness=0):
             tries_discriminative = min(1.0, std_t / mean_t) if mean_t > 0 else 0.0
         else:
             tries_discriminative = None
+        # Cross-model spread of cost: do models differ a lot in duration / output tokens on
+        # this task? (CV of each model's own mean, clipped to [0, 1]; needs 3+ models.)
+        def _cv(xs):
+            if len(xs) < 3:
+                return None
+            m_ = sum(xs) / len(xs)
+            return min(1.0, (sum((x - m_) ** 2 for x in xs) / len(xs)) ** 0.5 / m_) if m_ > 0 else None
+        cost_cvs = []
+        for key_ in ('duration', 'out_tokens'):
+            per_m = []
+            for rs in by_model.values():
+                vs = [r_[key_] for r_ in rs if r_[key_]]
+                if vs:
+                    per_m.append(sum(vs) / len(vs))
+            cv_ = _cv(per_m)
+            if cv_ is not None:
+                cost_cvs.append(cv_)
+        cost_discriminative = sum(cost_cvs) / len(cost_cvs) if cost_cvs else None
         usefulness_ex.append({
-            '_task': task, 'variant': variant,
+            '_task': task, 'variant': variant, '_cost_disc': cost_discriminative,
             'exercise': ex, 'language': lang, 'label': label, 'n_attempts': len(ex_rows),
             'n_models': len(model_pass_rates), 'models_passed': round(sum(model_pass_rates), 1),
             'eff_across_models': round(eff_pin_prior.get(task, eff_global), 4),
@@ -1054,6 +1124,19 @@ def build_dataset(rows, excluded_harness=0):
             if d['tries_discriminative'] is not None:
                 d['tries_discriminative'] = round(
                     shrink_toward_prior(d['tries_discriminative'], d['n_tries_models'], td_prior, TRIES_DISCRIMINATIVE_PRIOR_STRENGTH), 3)
+
+    # Fold the secondary spread signals into `discriminative`, somewhat: a task where models
+    # all land the same pass/fail but differ a lot in tries, duration or output tokens still
+    # separates them. Pass/fail stays dominant (75%); the other 25% is the mean of whichever of
+    # tries-discriminative and the cross-model duration / token spread exist (none -> unchanged).
+    SECONDARY_DISC_WEIGHT = 0.25
+    for d in usefulness_ex:
+        d['pass_discriminative'] = d['discriminative']
+        sec = [x for x in (d['tries_discriminative'], d.pop('_cost_disc')) if x is not None]
+        d['secondary_discriminative'] = round(sum(sec) / len(sec), 3) if sec else None
+        if sec:
+            d['discriminative'] = round((1 - SECONDARY_DISC_WEIGHT) * d['discriminative']
+                                        + SECONDARY_DISC_WEIGHT * sum(sec) / len(sec), 3)
 
     # Recall: how often models recognised the exercise and recalled the upstream
     # solution or tests (outcomes.py's `recalled_content` flag). A property of the exercise, not the

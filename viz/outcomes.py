@@ -72,7 +72,9 @@ FLAGS = {
     "looped":         "Thinking / text looped (same lines 5+ times)",
     "loop_stuck":     "A loop never recovered: the block ended still repeating (ran into a token cap)",
     "max_tokens":     "A request stopped at max_tokens",
+    "wrote_tests":    "Wrote its own test / check script (or test block) and used it",
     "never_tested":   "Never ran the tests (no test command, no run-tests call)",
+    "ran_past_pass":  "Kept going 5+ requests after its code first passed every test",
 }
 
 # which runners can raise each flag (the viz suffixes single-runner ones ·A / ·H and
@@ -80,6 +82,7 @@ FLAGS = {
 AIDER_FLAGS = {"recalled_inferred", "context", "output_limit", "malformed", "lint", "wrong_file", "server_error", "test_timeout", "lazy"}
 HARBOR_FLAGS = {"malformed", "edit_errors", "reasoning_cut", "markup_final", "slow_server", "proxy_rejected",
                 "build_failed", "knows_source", "knows_early", "recalled_content", "fetched_source", "internet", "source_in_prompt", "tool_errors", "never_tested",
+                "ran_past_pass", "wrote_tests",
                 "think_spill", "looped", "loop_stuck", "max_tokens",
                 "code_in_think", "copied_from_think"}
 FLAG_RUNNERS = {f: sorted(r for r, fs in (("aider", AIDER_FLAGS), ("harbor", HARBOR_FLAGS)) if f in fs) for f in FLAGS}
@@ -113,6 +116,7 @@ GLITCH_WEIGHTS = {
     "wrong_file":   0.3,
     "lazy":         0.2,   # placeholder comments
     "edit_errors":  0.15,  # often just stale old_string, but frequent in broken quants
+    "reasoning_cut": 0.25, # thinking hit its budget and was cut off mid-thought
 }
 GLITCH_END_WEIGHT = 1.0   # end reason "glitch": broken output ended the episode
 
@@ -179,7 +183,8 @@ def aider_attempts(path: Path = HERE.parent / "aider-results-per-test.tsv"):
 
 # ---------------------------------------------------------------- harbor
 
-HARNESS_EXCEPTIONS = {"CancelledError", "AgentSetupTimeoutError"}
+HARNESS_EXCEPTIONS = {"CancelledError", "AgentSetupTimeoutError", "NetworkConnectionError"}
+RAN_PAST_PASS_REQUESTS = 5
 
 
 def classify_harbor(row: dict) -> tuple[str, set[str]]:
@@ -196,6 +201,8 @@ def classify_harbor(row: dict) -> tuple[str, set[str]]:
                       ("loop_unrecovered", "loop_stuck"), ("px_max_tokens", "max_tokens")):
         if nz(row.get(col)):
             flags.add(flag)
+    if nz(row.get("own_tests")):
+        flags.add("wrote_tests")
     if nz(row.get("writes_from_think")):
         flags.add("copied_from_think")
     tc, tcode = row.get("think_chars") or "", row.get("think_code_chars") or ""
@@ -219,6 +226,10 @@ def classify_harbor(row: dict) -> tuple[str, set[str]]:
         flags.add("source_in_prompt")
     if nz(row.get("tool_errors")):
         flags.add("tool_errors")
+    # a clean finish spends 1-2 requests after the first pass (its summary); also catches
+    # passes that then ran into the time/token limit, and fails that broke passing code
+    if (row.get("post_pass_requests") or "").isdigit() and int(row["post_pass_requests"]) >= RAN_PAST_PASS_REQUESTS:
+        flags.add("ran_past_pass")
     if row.get("test_runs") == "0" and not nz(row.get("test_calls")):
         flags.add("never_tested")
     if row.get("reward") == "0" and (row.get("tests_parsed") == "0" or row.get("tests_passed") in ("", "0")

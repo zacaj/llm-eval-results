@@ -15,6 +15,7 @@
     --baseline:       #c3c2b7;
     --border:         rgba(11,11,11,0.10);
     --seq-blue:       #2a78d6;
+    --spread-ring:    #c026d3;
     --neutral-down:   #0f9e9a;  /* neutral stat going down (up = --seq-blue) */
     --seq-blue-dark:  #1c5cab;
     --seq-purple:     #7c4fd1;
@@ -55,6 +56,7 @@
       --baseline:       #383835;
       --border:         rgba(255,255,255,0.10);
       --seq-blue:       #3987e5;
+      --spread-ring:    #e879f9;
       --neutral-down:   #35c4bd;  /* neutral stat going down (up = --seq-blue) */
       --seq-blue-dark:  #256abf;
       --seq-purple:     #a77dea;
@@ -94,6 +96,7 @@
     --baseline:       #383835;
     --border:         rgba(255,255,255,0.10);
     --seq-blue:       #3987e5;
+    --spread-ring:    #e879f9;
     --neutral-down:   #35c4bd;  /* neutral stat going down (up = --seq-blue) */
     --seq-blue-dark:  #256abf;
     --seq-purple:     #a77dea;
@@ -241,6 +244,9 @@
     border-color: var(--text-primary) transparent transparent transparent;
   }
   .low-trust-star { color: var(--status-critical); font-weight: 700; margin-left: 2px; cursor: help; }
+  /* Spread outline: repeat runs of this cell disagree on the chosen measure. Ring thickness
+     (--sp, 1-4px) scales with the coefficient of variation; inset so it never changes layout. */
+  .hm-cell.spread { outline: var(--sp, 2px) solid var(--spread-ring); outline-offset: calc(-1 * var(--sp, 2px)); z-index: 1; }
   .hm-cell.fail.fail-limit { background-color: var(--fail-limit); color: var(--text-primary); }
   .endings-wrap { max-height: 560px; overflow: auto; }
   .endings-wrap table { border-collapse: collapse; font-size: 12px; width: 100%; }
@@ -416,6 +422,10 @@
   .recent-runs .rr-task { font-size: 11px; padding: 2px 6px; border-radius: 3px; border: 1px solid var(--grid); display: inline-flex; align-items: center; gap: 5px; }
   .recent-runs .rr-pips { display: inline-flex; gap: 2px; }
   .recent-runs .rr-pip { width: 8px; height: 8px; border-radius: 2px; }
+  .fx-cats { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 12px; margin: 0 0 8px; color: var(--text-secondary); }
+  .fx-cats button { font: inherit; padding: 2px 10px; border-radius: 12px; border: 1px solid var(--border); background: transparent; color: var(--text-secondary); cursor: pointer; }
+  .fx-cats button[aria-pressed="true"] { background: color-mix(in srgb, var(--seq-blue) 22%, transparent); border-color: var(--seq-blue); color: var(--text-primary); }
+  .fx-cats .fx-cat-sep { opacity: .5; }
   .fx-controls { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: 12.5px; margin: 6px 0 10px; color: var(--text-secondary); }
   /* its own scroll box, so the sideways scrollbar is on screen without reaching the table's end */
   .fx-wrap { overflow: auto; max-height: 80vh; }
@@ -494,6 +504,8 @@
      anything for a tries-spread metric) plus a thin connector down to its primary dot,
      so the two read as "one exercise, two measurements" rather than as unrelated marks. */
   .tries-disc-link { stroke: var(--seq-purple); stroke-width: 1.3; stroke-dasharray: 2 2; opacity: 0.7; }
+  .pass-disc-link { stroke: var(--status-good); stroke-width: 1.3; stroke-dasharray: 2 2; opacity: 0.7; }
+  .pass-disc-point { fill: var(--surface-1); stroke: var(--status-good); stroke-width: 2; cursor: default; }
   .tries-disc-point { fill: var(--surface-1); stroke: var(--seq-purple); stroke-width: 2; cursor: default; }
   .scatter-quadrant-label { font-size: 10px; fill: var(--text-muted); font-style: italic; }
 
@@ -670,9 +682,12 @@
     <div class="fx-controls">
       <label><input type="checkbox" id="fxSingle"> single-setting changes only</label>
       <label><input type="checkbox" id="fxWeak"> also show changes with no significant effect</label>
+      <label title="also tint results that aren't significant (fainter than the significant ones)"><input type="checkbox" id="fxColorAll"> color all values</label>
+      <label title="a change that's large but whose interval still crosses zero gets an outline instead of a fill, split in two colors by how much of the interval lies on each side of zero"><input type="checkbox" id="fxRing"> outline large non-significant</label>
       <label>setting <select id="fxAxis"><option value="">any</option></select></label>
       <label title="confidence level for both the per-comparison intervals and the across-models test">confidence <select id="fxLevel"><option>50</option><option>60</option><option>70</option><option>80</option><option selected>90</option><option>95</option><option>99</option></select>%</label>
     </div>
+    <div class="fx-cats" id="fxCats"></div>
     <div class="fx-wrap"><table class="fx-axes" id="fxAxes"></table></div>
   </div>
 
@@ -684,9 +699,12 @@
       <label><input type="radio" name="soKind" value="tests"> tests</label>
       <label>show <select id="soWhich"><option value="">singles and groups</option><option value="single">singles only</option><option value="group">groups only</option></select></label>
       <label><input type="checkbox" id="soAll"> also show rows with nothing significant</label>
+      <label title="also tint results that aren't significant (fainter than the significant ones)"><input type="checkbox" id="soColorAll"> color all values</label>
+      <label title="a change that's large but whose interval still crosses zero gets an outline instead of a fill, split in two colors by how much of the interval lies on each side of zero"><input type="checkbox" id="soRing"> outline large non-significant</label>
       <label title="show each cell's own value instead of its difference from the rest; the difference moves to the tooltip. Colors stay the same"><input type="checkbox" id="soAbs"> absolute values</label>
       <label>confidence <select id="soLevel"><option>50</option><option>60</option><option>70</option><option>80</option><option>90</option><option selected>95</option><option>99</option></select>%</label>
     </div>
+    <div class="fx-cats" id="soCats"></div>
     <div class="fx-wrap"><table class="fx-axes" id="soTable"></table></div>
   </div>
 
@@ -789,6 +807,15 @@
       </select>
       <label for="matrixMarkBy" style="font-size:12px;color:var(--text-secondary);margin-left:16px">Mark cells with</label>
       <select id="matrixMarkBy"></select>
+      <label for="matrixSpreadBy" style="font-size:12px;color:var(--text-secondary);margin-left:16px" title="Outline cells whose repeat runs disagree with each other on this measure">Outline spread in</label>
+      <select id="matrixSpreadBy">
+        <option value="none">Nothing</option>
+        <option value="any">Any of the below (worst)</option>
+        <option value="tries">Tries</option>
+        <option value="requests">Requests (Harbor)</option>
+        <option value="tokens">Output tokens</option>
+        <option value="duration">Duration</option>
+      </select>
     </div>
     <div class="heatmap-wrap"><div id="chart2"></div></div>
     <div class="legend">
@@ -796,6 +823,7 @@
       <div class="legend-item"><span class="swatch" style="background:var(--status-critical)"></span><span id="failLegend">Fail</span></div>
       <div class="legend-item" id="failLimitLegend"><span class="swatch" style="background:var(--fail-limit)"></span>Fail, stopped by a limit (out of tries / test calls / time / tokens) &mdash; not a failure on its own</div>
       <div class="legend-item"><span class="swatch mixed-swatch" style="background:var(--text-muted)"></span>Mixed (some of each, on repeat runs)</div>
+      <div class="legend-item" id="spreadLegend"><span class="swatch" style="background:transparent;outline:2px solid var(--spread-ring);outline-offset:-2px"></span><span id="spreadLegendText"></span></div>
       <div class="legend-item" id="markerLegend"><span class="swatch marker-swatch" style="background:var(--status-critical)"></span><span id="markerLegendText"></span></div>
     </div>
   </div>
@@ -819,7 +847,7 @@
 
   <div class="card">
     <h2>Exercise usefulness — is this task worth keeping?</h2>
-    <p class="desc">Each of the <span id="shortlistN4">15</span> currently selected tasks with surviving data, plotted by cost (average wall-clock time, all models) against how much it splits the model field (0 = every model landed the same way, pass or fail; 1 = an even 50/50 split — the most information a task can give). A task voided entirely (e.g. by a harness bug) is left off rather than shown as a false 0/0. Bubble size is attempt count; color is which way the split leans. Cheap + high-split (top-left) is the best-value task; expensive + low-split (bottom-right) is the prime candidate to cut. The table's <b>Quality</b> column folds discriminative power, cost, flakiness and recall rate into one number (higher = better) — it's what orders the heatmap's rows above. <b>Score weight</b> is a related but distinct number — discriminative power &times; reliability &times; (1 − ½ recall), cost excluded — it's how much this task counts toward the "Capability score by model" chart above. <b>Flakiness</b> is shrunk toward the typical (usually low) flakiness across every other exercise, weighted by how many models actually re-ran this one &mdash; a task re-run by exactly one model that split 1/2 isn't treated as confidently "maximally flaky" the way one re-run by seven models with a consistent mixed result is. <b>Timeout rate</b> is what fraction of this task's failures were the harness bailing on its max-duration limit rather than the model actually failing on its own (count in parentheses) &mdash; unlike Flakiness, this isn't folded into Quality or Score weight, since a model that reliably always times out on a task is consistent, not flaky; a high rate here is a hint the duration budget may be too tight for this specific task, worth checking before reading too much into its other numbers. <b>Recall rate</b> is how often a model recognised the exercise and recalled the upstream solution (it named Exercism or its specs, then wrote out remembered code or test cases). Only Harbor trajectories show this, but it's counted per exercise and applies to the aider variant too. It's shrunk toward the overall rate, and exercises with no Harbor attempts (marked *) get that overall rate. A task models reliably recall tests memory, not ability, so it lowers Quality, and scales Score weight by (1 − ½ × recall rate). The small <b>&#9670; diamond</b> tied to each dot by a dashed line is a second, independent split: <b>tries-discriminative</b> — not whether models pass or fail, but how much their average tries-to-pass on this task actually spread out (0 = everyone needed about the same tries even if some failed, 1 = a wide spread from fast to slow). A task can split cleanly on pass/fail (high discriminative) while everyone who passes takes about the same tries (low tries-discriminative), or the reverse — everyone eventually passes, but how long it takes them varies a lot. It's omitted for a task fewer than 2 models have passed yet, since there's nothing to compare.</p>
+    <p class="desc">Each of the <span id="shortlistN4">15</span> currently selected tasks with surviving data, plotted by cost (average wall-clock time, all models) against how much it splits the model field (0 = every model landed the same way, pass or fail; 1 = an even 50/50 split — the most information a task can give). A task voided entirely (e.g. by a harness bug) is left off rather than shown as a false 0/0. Bubble size is attempt count; color is which way the split leans. Cheap + high-split (top-left) is the best-value task; expensive + low-split (bottom-right) is the prime candidate to cut. The table's <b>Quality</b> column folds discriminative power, cost, flakiness and recall rate into one number (higher = better) — it's what orders the heatmap's rows above. <b>Score weight</b> is a related but distinct number — discriminative power &times; reliability &times; (1 − ½ recall), cost excluded — it's how much this task counts toward the "Capability score by model" chart above. <b>Flakiness</b> is shrunk toward the typical (usually low) flakiness across every other exercise, weighted by how many models actually re-ran this one &mdash; a task re-run by exactly one model that split 1/2 isn't treated as confidently "maximally flaky" the way one re-run by seven models with a consistent mixed result is. <b>Timeout rate</b> is what fraction of this task's failures were the harness bailing on its max-duration limit rather than the model actually failing on its own (count in parentheses) &mdash; unlike Flakiness, this isn't folded into Quality or Score weight, since a model that reliably always times out on a task is consistent, not flaky; a high rate here is a hint the duration budget may be too tight for this specific task, worth checking before reading too much into its other numbers. <b>Recall rate</b> is how often a model recognised the exercise and recalled the upstream solution (it named Exercism or its specs, then wrote out remembered code or test cases). Only Harbor trajectories show this, but it's counted per exercise and applies to the aider variant too. It's shrunk toward the overall rate, and exercises with no Harbor attempts (marked *) get that overall rate. A task models reliably recall tests memory, not ability, so it lowers Quality, and scales Score weight by (1 − ½ × recall rate). The small <b>&#9670; diamond</b> tied to each dot by a dashed line is a second, independent split: <b>tries-discriminative</b> — not whether models pass or fail, but how much their average tries-to-pass on this task actually spread out (0 = everyone needed about the same tries even if some failed, 1 = a wide spread from fast to slow). A task can split cleanly on pass/fail (high discriminative) while everyone who passes takes about the same tries (low tries-discriminative), or the reverse — everyone eventually passes, but how long it takes them varies a lot. It's omitted for a task fewer than 2 models have passed yet, since there's nothing to compare. The dot's height is the pass/fail split blended (75/25) with the other spread signals (tries, and how much models differ in duration and output tokens); the <b>&#9633; square</b> shows that 25% part on its own (the mean of tries, duration and token spread; the diamond is just its tries component), so a dot pulled up or down from its pass/fail value can be traced to it.</p>
     <div class="scatter-wrap"><div id="scatterChart"></div></div>
     <div class="legend">
       <div class="legend-item"><span class="swatch" style="background:var(--status-critical)"></span>Mostly fails</div>
@@ -979,7 +1007,7 @@ const FILTER_STORAGE_KEY = 'eval-viz-filters-v3';  // v3: runner-coded task labe
 // Sort dropdowns and min-count boxes persist alongside the filters (same key, `ui`
 // sub-object). Read/written by element id at call time so this block can sit above the
 // code that declares those elements' consts.
-const PERSISTED_UI_IDS = ['exerciseSortBy', 'exerciseMinRuns', 'modelMinExercises', 'speedSortBy', 'tokensSortBy', 'matrixSortBy', 'matrixColorBy', 'matrixFailBy', 'matrixMarkBy', 'budgetAxis', 'endingsRows'];
+const PERSISTED_UI_IDS = ['exerciseSortBy', 'exerciseMinRuns', 'modelMinExercises', 'speedSortBy', 'tokensSortBy', 'matrixSortBy', 'matrixColorBy', 'matrixFailBy', 'matrixMarkBy', 'matrixSpreadBy', 'budgetAxis', 'endingsRows'];
 function loadFiltersFromStorage() {
   let saved;
   try {
@@ -2194,6 +2222,24 @@ function rampFill(t) {
 
 const c2 = document.getElementById('chart2');
 
+// Spread of a cell's repeat runs. Std dev alone can't be compared across tests (a 2k-token
+// std dev is huge on a 3k task, nothing on a 60k one), so cells are ranked by the coefficient
+// of variation, sd / mean, with sd tabulated in the tooltip. Sample sd (n-1), so it needs 2+ runs.
+const SPREAD = {
+  tries: { label: 'tries', get: r => r.tries ? +r.tries : null, fmt: x => x.toFixed(1) },
+  requests: { label: 'turns', get: r => r.requests, fmt: x => Math.round(x).toLocaleString() },
+  tokens: { label: 'output tokens', get: r => r.tokens, fmt: x => Math.round(x).toLocaleString() },
+  duration: { label: 'duration', get: r => r.duration, fmt: x => Math.round(x) + 's' },
+};
+const SPREAD_FLOOR = 0.15, SPREAD_FULL = 1.0;  // CV below the floor = consistent, no ring; at/above FULL = thickest ring
+function spreadOf(runs, k) {
+  const v = runs.map(SPREAD[k].get).filter(x => x != null && x > 0);
+  if (v.length < 2) return null;
+  const mean = v.reduce((a, b) => a + b, 0) / v.length;
+  const sd = Math.sqrt(v.reduce((a, b) => a + (b - mean) ** 2, 0) / (v.length - 1));
+  return { n: v.length, mean, sd, cv: sd / mean };
+}
+
 function renderHeatmap(matrixData, matrixModels, perfPts) {
   c2.innerHTML = '';
   if (!matrixData.length || !matrixModels.length) {
@@ -2208,6 +2254,9 @@ function renderHeatmap(matrixData, matrixModels, perfPts) {
   document.getElementById('markerLegendText').textContent = `Includes a run that ${mark.startsWith('end:') ? 'ended: ' + markLabel.replace(/^Ended: /, '').toLowerCase() : 'had: ' + markLabel.toLowerCase()}`;
   document.getElementById('failLimitLegend').style.display = failBy === 'reason' ? '' : 'none';
   document.getElementById('failLegend').textContent = failBy === 'reason' ? 'Fail, on its own (declared done with failing tests, or broke)' : 'Fail';
+  const spreadBy = matrixSpreadBy.value;
+  document.getElementById('spreadLegend').style.display = spreadBy === 'none' ? 'none' : '';
+  document.getElementById('spreadLegendText').textContent = `Repeat runs spread out (std dev / mean over ${spreadBy === 'any' ? 'the worst of tries, requests, tokens, duration' : SPREAD[spreadBy]?.label}), from ${SPREAD_FLOOR * 100}% (thin) to ${SPREAD_FULL * 100}%+ (thick); needs 2+ runs`;
   const key = { duration: 'duration', tries: 'tries_num', tokens: tokenMode === 'raw' ? 'tokens' : 'tokens_norm' }[metric];
   const cellVals = new Map();
   if (!legacy) perfPts.forEach(p => {
@@ -2257,9 +2306,17 @@ function renderHeatmap(matrixData, matrixModels, perfPts) {
       if (marked > 0) cls += ' marked';
       const lowTrust = cell.live.filter(r => r.trust < data.low_trust).length;
       if (lowTrust * 2 >= cell.live.length) cls += ' low-trust';
+      const spreadKeys = spreadBy === 'none' ? [] : spreadBy === 'any' ? Object.keys(SPREAD) : [spreadBy];
+      const worstCv = Math.max(0, ...spreadKeys.map(k => spreadOf(cell.live, k)?.cv ?? 0));
+      let spreadStyle = '';
+      if (worstCv >= SPREAD_FLOOR) {
+        cls += ' spread';
+        spreadStyle = `--sp:${(1 + 3 * Math.min(1, (worstCv - SPREAD_FLOOR) / (SPREAD_FULL - SPREAD_FLOOR))).toFixed(1)}px;`;
+      }
       const fails = cell.live.filter(r => !r.pass);
       const limitFails = fails.filter(isLimitEnd).length;
       if (cls.startsWith('fail') && failBy === 'reason' && limitFails * 2 > fails.length) cls += ' fail-limit';
+      if (spreadStyle) style = style ? style.replace(/"$/, `;${spreadStyle}"`) : `style="${spreadStyle}"`;
       return `<td class="hm-cell ${cls}" ${style} data-ex="${row.label}" data-model="${matrixModels[i]}" data-pass="${cell.pass}" data-total="${cell.total}" data-tries="${cell.avg_tries ?? ''}" data-val="${val != null && spec ? spec.fmt(val) : ''}" data-mark="${marked}" data-limit="${limitFails}" data-lowtrust="${lowTrust}">${label}</td>`;
     }).join('');
     const rowRuns = row.cells.flatMap(c => c ? c.live : []);
@@ -2291,15 +2348,20 @@ function renderHeatmap(matrixData, matrixModels, perfPts) {
         <td>${r.tries || '?'}</td>
         <td>${r.duration}s</td>
         <td>${r.tokens ? r.tokens.toLocaleString() : '?'}</td>
+        <td>${r.requests ?? '–'}</td>
         <td>${r.seed || '?'}</td>
         <td>${(r.flags || []).map(f => f === 'reasoning_cut' && r.think_blocks ? `reasoning cut ${r.think_cuts}/${r.think_blocks}` : f).join(', ')}${r.trust < 1 ? ` <b title="counts this much toward capability scores (outcomes.py TRUST)">· trust ${Math.round(r.trust * 100)}%</b>` : ''}</td>
         <td class="tt-cmd" title="${r.run_cmd}">${r.run_cmd}</td>
       </tr>`).join('');
       const runTable = runs.length ? `<table>
-        <thead><tr><th>When</th><th>Result</th><th>Tries</th><th>Time</th><th title="output tokens">Out tok</th><th>Seed</th><th>Flags</th><th>Run</th></tr></thead>
+        <thead><tr><th>When</th><th>Result</th><th>Tries</th><th>Time</th><th title="output tokens">Out tok</th><th title="model requests (Harbor only)">Req</th><th>Seed</th><th>Flags</th><th>Run</th></tr></thead>
         <tbody>${runRows}</tbody>
       </table>` : '';
-      showTip(e, `<b>${td.dataset.model}</b><br>${td.dataset.ex}: ${td.dataset.pass}/${td.dataset.total} seeds passed${triesLine}${timeoutLine}${ctxLine}${trustLine}` +
+      const liveRuns = runs.filter(r => !r.superseded);
+      const spreadRows = Object.keys(SPREAD).map(k => [k, spreadOf(liveRuns, k)]).filter(([, sp]) => sp)
+        .map(([k, sp]) => `<tr><td>${SPREAD[k].label}</td><td>${SPREAD[k].fmt(sp.mean)}</td><td>±${SPREAD[k].fmt(sp.sd)}</td><td${sp.cv >= SPREAD_FLOOR ? ' style="color:var(--spread-ring);font-weight:600"' : ''}>${Math.round(sp.cv * 100)}%</td></tr>`).join('');
+      const spreadTable = spreadRows ? `<hr class="tt-rule"><table><thead><tr><th>Spread over ${liveRuns.length} runs</th><th>mean</th><th>std dev</th><th title="std dev / mean: comparable across tests">CV</th></tr></thead><tbody>${spreadRows}</tbody></table>` : '';
+      showTip(e, `<b>${td.dataset.model}</b><br>${td.dataset.ex}: ${td.dataset.pass}/${td.dataset.total} seeds passed${triesLine}${timeoutLine}${ctxLine}${trustLine}` + spreadTable +
         (runTable ? `<hr class="tt-rule">${runTable}` : ''));
     });
     td.addEventListener('mouseleave', hideTip);
@@ -2429,7 +2491,7 @@ function renderUsefulnessSection(ex) {
   gridSvg += `<line class="scatter-axis" x1="${M.left}" x2="${M.left}" y1="${M.top}" y2="${H - M.bottom}"/>`;
   gridSvg += `<line class="scatter-axis" x1="${M.left}" x2="${W - M.right}" y1="${H - M.bottom}" y2="${H - M.bottom}"/>`;
   gridSvg += `<text class="scatter-axis-label" x="${M.left + innerW / 2}" y="${H - 6}" text-anchor="middle">average duration per attempt (s), all models</text>`;
-  gridSvg += `<text class="scatter-axis-label" x="${-(M.top + innerH / 2)}" y="14" text-anchor="middle" transform="rotate(-90)">discriminative power (0 = all agree, 1 = 50/50 split) &middot; ◇ tries-spread (dashed link)</text>`;
+  gridSvg += `<text class="scatter-axis-label" x="${-(M.top + innerH / 2)}" y="14" text-anchor="middle" transform="rotate(-90)">discriminative power (0 = all agree, 1 = 50/50 split) &middot; ◇ tries-spread &middot; □ other spread mixed in at 25% (dashed links)</text>`;
 
   // sort by x so alternating label offsets reduce local collisions
   const sortedByX = ex.slice().sort((a, b) => a.avg_duration - b.avg_duration);
@@ -2452,11 +2514,18 @@ function renderUsefulnessSection(ex) {
       const s = 5;
       tdPointsSvg += `<path class="tries-disc-point" data-td-i="${ex.indexOf(d)}" d="M${cx} ${tdy - s}L${cx + s} ${tdy}L${cx} ${tdy + s}L${cx - s} ${tdy}Z"/>`;
     }
+    // Square: the secondary score mixed in at 25% (mean of tries / duration / token spread),
+    // drawn at its own height; the dot is 75% pass/fail + 25% this
+    if (d.secondary_discriminative != null) {
+      const pdy = yScale(d.secondary_discriminative), q = 4.5;
+      tdPointsSvg += `<line class="pass-disc-link" x1="${cx}" x2="${cx}" y1="${cy}" y2="${pdy}"/>` +
+        `<rect class="pass-disc-point" data-pd-i="${ex.indexOf(d)}" x="${cx - q}" y="${pdy - q}" width="${2 * q}" height="${2 * q}"/>`;
+    }
   });
 
   const svgEl = document.getElementById('scatterChart');
   svgEl.innerHTML = `<svg class="scatter-svg" viewBox="0 0 ${W} ${H}" width="100%" style="max-width:${W}px">${gridSvg}${tdPointsSvg}${pointsSvg}</svg>`;
-  attachHoverGuides(svgEl, 'circle.scatter-point, path.tries-disc-point', { x: { top: M.top, bottom: H - M.bottom }, y: { left: M.left, right: W - M.right } });
+  attachHoverGuides(svgEl, 'circle.scatter-point, path.tries-disc-point, rect.pass-disc-point', { x: { top: M.top, bottom: H - M.bottom }, y: { left: M.left, right: W - M.right } });
 
   svgEl.querySelectorAll('circle.scatter-point').forEach(c => {
     const d = ex[+c.dataset.i];
@@ -2467,6 +2536,16 @@ function renderUsefulnessSection(ex) {
       `avg ${d.avg_duration.toFixed(0)}s over ${d.n_attempts} attempts<br>` +
       (d.flakiness !== null ? `repeat-run flakiness ${d.flakiness.toFixed(2)} (${d.n_flaky_models} model${d.n_flaky_models === 1 ? '' : 's'} re-ran it)` : 'no repeat runs to judge consistency') +
       (d.timeout_rate !== null ? `<br>${(d.timeout_rate * 100).toFixed(0)}% of failures were timeouts (${d.timeout_fails})` : '')
+    ));
+    c.addEventListener('mouseleave', hideTip);
+  });
+
+  svgEl.querySelectorAll('rect.pass-disc-point').forEach(c => {
+    const d = ex[+c.dataset.pdI];
+    c.addEventListener('mousemove', e => showTip(e,
+      `<b>${d.label}</b> — secondary spread<br>` +
+      `${d.secondary_discriminative.toFixed(2)}: mean of tries${d.tries_discriminative !== null ? ` (${d.tries_discriminative.toFixed(2)})` : ''}, duration and output-token spread across models; mixed in at 25%<br>` +
+      `pass/fail part ${d.pass_discriminative.toFixed(2)} (75%) &rarr; dot ${d.discriminative.toFixed(2)}`
     ));
     c.addEventListener('mouseleave', hideTip);
   });
@@ -2680,6 +2759,8 @@ const matrixFailBy = document.getElementById('matrixFailBy');
 matrixFailBy.addEventListener('change', () => applyFilters());
 const matrixMarkBy = document.getElementById('matrixMarkBy');
 matrixMarkBy.addEventListener('change', () => applyFilters());
+const matrixSpreadBy = document.getElementById('matrixSpreadBy');
+matrixSpreadBy.addEventListener('change', () => applyFilters());
 
 // Runs for the matrix cells and hover tables, built from data.detail so the date window
 // applies: only runs inside it, latest-per-seed re-evaluated within it.
@@ -2808,11 +2889,30 @@ const FX_Z = { 50: 0.674, 60: 0.842, 70: 1.036, 80: 1.282, 90: 1.645, 95: 1.960,
 const EFFORT_ORDER = { none: 0, low: 1, medium: 2, high: 3, xhigh: 4 };
 const RUNNER_ORDER = { aider: 0, harbor: 1, 'harbor-tc': 2 };
 let fxData = { settings: [], standouts: { models: [], tests: [] } };
+// Spread stats: how much repeat runs of one (model, test) disagree on a stat, as a coefficient of
+// variation (sample sd / mean; comparable across stats and test sizes), averaged like any other
+// stat. Appended after the exported stats, so every stat index below runs over FXS. A list of
+// attempts needs 2+ values to have a spread; a perfectly consistent one reads as FX_CV_FLOOR, not 0,
+// since ratio stats drop zeros and "very consistent" is itself a finding.
+const FX_CV_FLOOR = 0.05;
+const FX_SPREAD = [['steps', 'tries / test calls'], ['requests', 'turns'], ['out_tokens', 'output tokens'],
+  ['duration', 'duration'], ['tests_frac', 'tests passed'], ['reason_req', 'reasoning tokens / turn']];
+const FXS = [...data.fx.stats, ...FX_SPREAD.map(([k, lb]) => ({ key: 'sd_' + k, label: `spread (CV) of ${lb} across repeat runs`,
+  kind: 'ratio', better: 'down', span: null, pct: true, base: data.fx.stats.findIndex(s => s.key === k) })).filter(s => s.base >= 0)];
+// overall spread: the worst (largest) CV of the spread stats above, for the same attempts
+FXS.push({ key: 'sd_any', label: 'overall spread (worst CV of any spread stat) across repeat runs', kind: 'ratio', better: 'down', span: null, pct: true, base: -1 });
+const fxCv = (xs, i) => {
+  const v = xs.map(r => r.x[i]).filter(x => x != null);
+  if (v.length < 2) return null;
+  const m = v.reduce((a, b) => a + b, 0) / v.length;
+  if (!(m > 0)) return null;
+  return Math.max(FX_CV_FLOOR, Math.sqrt(v.reduce((a, b) => a + (b - m) ** 2, 0) / (v.length - 1)) / m);
+};
 
 // per-stat mean over the attempts of each list, then over the lists (so a heavily sampled
 // task / model doesn't outweigh the rest); null where no list has a value
 function fxMeanVec(lists) {
-  const S = data.fx.stats.length, sum = new Array(S).fill(0), cnt = new Array(S).fill(0);
+  const S = FXS.length, sum = new Array(S).fill(0), cnt = new Array(S).fill(0);
   for (const xs of lists) {
     const v = fxListMean(xs);
     for (let i = 0; i < S; i++) if (v[i] != null) { sum[i] += v[i]; cnt[i]++; }
@@ -2822,16 +2922,19 @@ function fxMeanVec(lists) {
 const fxListMeanCache = new WeakMap();
 function fxListMean(xs) {
   if (fxListMeanCache.has(xs)) return fxListMeanCache.get(xs);
-  const S = data.fx.stats.length, sum = new Array(S).fill(0), cnt = new Array(S).fill(0);
-  for (const r of xs) for (let i = 0; i < S; i++) if (r.x[i] != null) { sum[i] += r.x[i]; cnt[i]++; }
+  const S0 = data.fx.stats.length, sum = new Array(S0).fill(0), cnt = new Array(S0).fill(0);
+  for (const r of xs) for (let i = 0; i < S0; i++) if (r.x[i] != null) { sum[i] += r.x[i]; cnt[i]++; }
   const out = sum.map((x, i) => cnt[i] ? x / cnt[i] : null);
+  for (let i = S0; i < FXS.length; i++) if (FXS[i].base >= 0) out.push(fxCv(xs, FXS[i].base));
+  const cvs = out.slice(S0).filter(x => x != null);
+  out.push(cvs.length ? Math.max(...cvs) : null);   // sd_any
   fxListMeanCache.set(xs, out);
   return out;
 }
 // units: [{ a: per-stat means (baseline / setting A), b: (subject / setting B) }]
 function fxStats(units, minUnits) {
   const out = [];
-  data.fx.stats.forEach((st, i) => {
+  FXS.forEach((st, i) => {
     const pairs = [];
     for (const u of units) {
       const a = u.a[i], b = u.b[i];
@@ -3015,6 +3118,7 @@ function fxSave() {
   try {
     localStorage.setItem(FX_STORAGE_KEY, JSON.stringify({
       single: document.getElementById('fxSingle').checked, weak: document.getElementById('fxWeak').checked,
+      all: document.getElementById('fxColorAll').checked, ring: document.getElementById('fxRing').checked,
       axis: document.getElementById('fxAxis').value, level: document.getElementById('fxLevel').value, open: [...fxOpen],
     }));
   } catch (e) { /* storage unavailable: settings just don't persist */ }
@@ -3025,6 +3129,8 @@ function fxRestore() {
     if (!st) return;
     document.getElementById('fxSingle').checked = !!st.single;
     document.getElementById('fxWeak').checked = !!st.weak;
+    document.getElementById('fxColorAll').checked = !!st.all;
+    document.getElementById('fxRing').checked = !!st.ring;
     const sel = document.getElementById('fxAxis');
     if ([...sel.options].some(o => o.value === st.axis)) sel.value = st.axis;
     if (st.level) document.getElementById('fxLevel').value = st.level;
@@ -3043,11 +3149,11 @@ const tone = s => !s.better ? (s.delta > 0 ? 'up' : 'down') : (s.delta > 0) === 
 const toneCol = t => ({ good: 'var(--status-good)', bad: 'var(--status-critical)', up: 'var(--seq-blue)', down: 'var(--neutral-down)' }[t]);
 const fmtDelta = s => s.kind === 'rate' ? `${s.delta > 0 ? '+' : ''}${Math.round(s.delta * 100)}pt`
   : s.delta >= 1 ? `×${(1 + s.delta).toFixed(1)}` : `${s.delta > 0 ? '+' : ''}${Math.round(s.delta * 100)}%`;
-const fmtVal = (s, v) => s.kind === 'rate' ? `${Math.round(v * 100)}%`
+const fmtVal = (s, v) => s.pct ? `${Math.round(v * 100)}%` : s.kind === 'rate' ? `${Math.round(v * 100)}%`
   : v >= 1e4 ? (v / 1e3).toFixed(0) + 'k' : v >= 1e3 ? (v / 1e3).toFixed(1) + 'k' : v >= 10 ? Math.round(v) : v.toFixed(1);
 // columns grouped: outcome, cost, thinking, then glitches (unknown keys go last)
-const COL_ORDER = ['pass', 'tests_frac', 'timeout', 'done_wrong', 'stability', 'out_tokens', 'duration', 'steps', 'requests',
-  'reason_req', 'answer_req', 'think_cut', 'think_code', 'copied', 'spill', 'looped', 'loop_stuck', 'malformed', 'syntax', 'tool_err', 'edit_err', 'knows_src', 'recalled', 'fetched'];
+const COL_ORDER = ['capability', 'net_tokens', 'pass', 'tests_frac', 'timeout', 'done_wrong', 'stability', 'glitch_end', 'out_tokens', 'duration', 'steps', 'requests', 'tok_req', 'sd_any', 'sd_steps', 'sd_requests', 'sd_out_tokens', 'sd_duration', 'sd_tests_frac', 'sd_reason_req',
+  'reason_req', 'answer_req', 'think_cut', 'think_code', 'copied', 'spill', 'looped', 'loop_stuck', 'malformed', 'syntax', 'own_tests', 'tool_err', 'edit_err', 'knows_src', 'recalled', 'fetched'];
 const colIdx = k => { const i = COL_ORDER.indexOf(k); return i < 0 ? 99 : i; };
 const dirNote = s => s.better === 'up' ? '↑ better' : s.better === 'down' ? '↓ better' : 'neutral';
 const BLANK = s => s.kind === 'rate' ? 0.12 * span(s) : 0.05;  // a pooled change this small leaves the cell empty
@@ -3058,16 +3164,145 @@ const back = (s, x) => s.kind === 'rate' ? x : Math.exp(x) - 1;
 // long names are cut off at a max width; the full name goes in a tooltip (title = false
 // when the surrounding cell's own tooltip already starts with it)
 const fxName = (n, title = true) => `<span class="fx-name"${title ? ` title="${esc(n)}"` : ''}>${esc(n)}</span>`;
+// Column categories: chips above each table show/hide a whole group of columns (hidden columns
+// also drop out of the row ranking). Unlisted stats land in 'other'.
+const FX_CATS = [
+  { id: 'capability', label: 'Capability', keys: ['capability', 'pass', 'steps', 'tests_frac', 'timeout', 'done_wrong'] },
+  { id: 'stability', label: 'Stability', keys: ['stability', 'glitch_end', 'looped', 'loop_stuck', 'spill', 'malformed', 'syntax', 'edit_err', 'tool_err', 'think_cut'] },
+  { id: 'spread', label: 'Spread', keys: ['sd_any', 'sd_steps', 'sd_requests', 'sd_out_tokens', 'sd_duration', 'sd_tests_frac', 'sd_reason_req'] },
+  { id: 'cost', label: 'Cost & timing', keys: ['net_tokens', 'out_tokens', 'duration', 'steps', 'requests', 'tok_req'] },
+  { id: 'thinking', label: 'Thinking', keys: ['reason_req', 'answer_req', 'tok_req', 'think_cut', 'think_code', 'copied'] },
+  { id: 'recall', label: 'Recall', keys: ['knows_src', 'recalled', 'fetched'] },
+  { id: 'behavior', label: 'Behavior', keys: ['own_tests'] },
+  { id: 'other', label: 'Other', keys: [] },
+];
+const FX_OVERVIEW = ['capability', 'stability', 'spread'];
+// a category's summary column: always first, and the default sort when that category is shown alone
+const FX_SUMMARY = { capability: 'capability', stability: 'stability', cost: 'net_tokens', spread: 'sd_any' };
+const sumRank = k => { const i = Object.values(FX_SUMMARY).indexOf(k); return i < 0 ? 99 : i; };
+const effSort = (st, cat) => {
+  if (st.key) return st;
+  const act = [...cat.on].filter(id => cat.counts[id]);
+  return act.length === 1 && FX_SUMMARY[act[0]] ? { key: FX_SUMMARY[act[0]], dir: -1 } : st;
+};
+// a stat can sit in several categories (tries counts as both capability and cost); it shows if any is on
+// a spread column (sd_<stat>) also belongs to every category of its base stat; the overall one (sd_any) doesn't
+const catsOf = k => {
+  const m = FX_CATS.filter(c => c.keys.includes(k)).map(c => c.id);
+  if (k.startsWith('sd_') && k !== 'sd_any') for (const c of catsOf(k.slice(3))) if (!m.includes(c) && c !== 'other') m.push(c);
+  return m.length ? m : ['other'];
+};
+const catVisible = (on, k) => catsOf(k).some(c => on.has(c));
+function makeCats(el, storeKey, onChange) {
+  const st = { on: new Set(FX_CATS.map(c => c.id)) };
+  try { const v = JSON.parse(localStorage.getItem(storeKey) || 'null'); if (Array.isArray(v)) st.on = new Set(v); } catch (e) { /* ignore */ }
+  const counts = Object.fromEntries(FX_CATS.map(c => [c.id, FXS.filter(x => catsOf(x.key).includes(c.id)).length]));
+  const draw = () => {
+    el.innerHTML = '<span>columns:</span>' + FX_CATS.filter(c => counts[c.id]).map(c =>
+      `<button type="button" data-cat="${c.id}" aria-pressed="${st.on.has(c.id)}" title="${esc(c.keys.join(', ') || 'stats not in another group')}">${c.label} (${counts[c.id]})</button>`).join('') +
+      '<span class="fx-cat-sep">|</span><button type="button" data-preset="all">all</button><button type="button" data-preset="overview" title="capability, stability and spread only">overview</button>';
+  };
+  el.addEventListener('click', e => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    if (b.dataset.cat) st.on.has(b.dataset.cat) ? st.on.delete(b.dataset.cat) : st.on.add(b.dataset.cat);
+    else if (b.dataset.preset) st.on = new Set(b.dataset.preset === 'all' ? FX_CATS.map(c => c.id) : FX_OVERVIEW);
+    else return;
+    try { localStorage.setItem(storeKey, JSON.stringify([...st.on])); } catch (err) { /* ignore */ }
+    draw(); onChange();
+  });
+  draw();
+  st.counts = counts;
+  return st;
+}
+let fxCatState = null, soCatState = null;
+// one-line explanation per column, shown in the header tooltip
+const COL_DESC = {
+  capability: 'Summary of the Capability group. Overall capability, 0-100%: 65% tests passed + 30% full pass + 5% not timing out, minus 15 points for declaring done with tests failing and up to 5 for a pass that took more tries than the task average. Aider has no per-test counts, so its pass/fail stands in for tests passed.',
+  pass: 'Share of attempts that fully passed (all of the task\'s tests).',
+  tests_frac: 'Average fraction of the task\'s individual tests passed; partial credit. Tests that never ran count as failed. Harbor only.',
+  timeout: 'Share of attempts that ran out of time (wall clock) before finishing. A reason pass is low, not a model flaw by itself.',
+  done_wrong: 'Share of attempts where the model declared itself done while tests were still failing: confidently wrong rather than unfinished. Harbor only.',
+  stability: 'Summary of the Stability group. Average of 1 minus a severity-weighted glitch score (stuck loops, thinking leaked into answers, malformed calls, ...). Higher = cleaner output. Aider cannot see loops / spills, so compare within a runner.',
+  looped: 'Share of attempts that repeated itself in a loop (even if it recovered). Harbor only.',
+  loop_stuck: 'Share of attempts where a loop never recovered. Harbor only.',
+  spill: 'Share of attempts where thinking tags leaked into the answer or tool input. Harbor only.',
+  malformed: 'Share of attempts with a malformed tool call or edit block.',
+  syntax: 'Share of attempts with syntax / lint / indentation errors. Aider only.',
+  edit_err: 'Share of attempts with at least one failed edit (often a stale old_string); feeds stability. Harbor only.',
+  glitch_end: 'Share of attempts that ended in a glitch: broken output, or a last message that was raw tool markup. Feeds stability at full weight.',
+  tool_err: 'Share of tool calls that returned an error. Harbor only.',
+  out_tokens: 'Output tokens per attempt (reasoning included): the speed-independent measure of how much the model wrote.',
+  duration: 'Wall-clock seconds per attempt. Mostly output tokens scaled by server speed, so it matters most when comparing models of different speeds.',
+  steps: 'Tries to pass (aider) or run-tests calls (Harbor), compared per task, so a model run on a different mix of tests is not skewed. Fewer = more capable, also counted in the capability score.',
+  requests: 'Turns: model requests per attempt (each request is one turn of the conversation). Harbor only.',
+  net_tokens: 'Summary of the Cost group. Output tokens minus turns x a per-turn floor (the 5th-percentile tokens per turn over all data), so it counts what the run wrote beyond the minimum a turn costs, and many small turns are not penalized as heavily as one verbose one. Harbor only.',
+  tok_req: 'Output tokens per turn: how big each turn is. With turns, it tells few-big-turns from many-small-turns. Harbor only.',
+  reason_req: 'Reasoning tokens per turn (the thinking part of a model request). Harbor only.',
+  answer_req: 'Answer tokens per turn (the visible reply / tool call, not thinking). Harbor only.',
+  think_cut: 'Share of thinking blocks cut off by the thinking budget (attempts with a cut-off also count against stability).',
+  think_code: 'Share of thinking text that is code. Harbor only.',
+  copied: 'Share of big file writes copied from the model\'s own thinking. Harbor only.',
+  own_tests: 'Share of attempts where the model wrote its own tests. Harbor only.',
+  knows_src: 'Share of attempts where the model named the exercise source itself (Exercism or its specs). Lower = the result says more about ability.',
+  recalled: 'Share of attempts that recalled the upstream solution or tests from memory. Lower = the result says more about ability.',
+  fetched: 'Share of attempts that fetched upstream files or outside URLs. Harbor only.',
+  sd_any: 'Summary of the Spread group. Overall spread: the worst of the five spread columns below, across a (model, test) pair\'s repeat runs. Needs 2+ runs.',
+  sd_steps: 'How much repeat runs of the same model + test disagree on tries / test calls (std dev / mean). Needs 2+ runs.',
+  sd_requests: 'Same, for turns.',
+  sd_out_tokens: 'Same, for output tokens.',
+  sd_duration: 'Same, for duration.',
+  sd_tests_frac: 'Same, for tests passed.',
+  sd_reason_req: 'Same, for reasoning tokens per turn.',
+};
+// click-to-sort headers: first click on a stat sorts big→small (name: A→Z), second flips, third restores
+// the default order. Rows with no value in that column go last either way.
+const fxSortState = {}, soSortState = {};
+const sortInd = (st, k) => st.key === k ? (st.dir > 0 ? ' ▲' : ' ▼') : '';
+const nextSort = (st, k) => {
+  const first = k === '_name' ? 1 : -1;
+  if (st.key !== k) { st.key = k; st.dir = first; } else if (st.dir === first) st.dir = -first; else { st.key = null; st.dir = 0; }
+};
+const sortRows = (rows, st, valOf) => {
+  if (!st.key) return;
+  rows.sort((a, b) => {
+    const va = valOf(a, st.key), vb = valOf(b, st.key);
+    if (va == null && vb == null) return 0;
+    if (va == null) return 1;
+    if (vb == null) return -1;
+    return (typeof va === 'string' ? va.localeCompare(vb) : va - vb) * st.dir;
+  });
+};
+const sortTh = (k, st, inner, attrs = '') => `<th data-sort="${k}" style="cursor:pointer" ${attrs}>${inner}${sortInd(st, k)}</th>`;
+// non-significant cells, when the "color all" / "outline big" options are on: a faint fill in the
+// stat's direction color, or (big change whose interval still crosses 0) an outline instead of a fill
+const nsChip = (text, info, med, o, ci) => {
+  const big = Math.abs(med.delta) >= BIG(info), col = toneCol(tone(med));
+  if (o.ring && big) {
+    // outline split by how much of the interval lies on each side of zero: left = decrease
+    // (its direction's color), right = increase; the split point is the zero line
+    const f = tf(info), lo = f(ci[0]), hi = f(ci[1]);
+    const posShare = hi > lo ? Math.max(0, Math.min(1, hi / (hi - lo))) : (med.delta > 0 ? 1 : 0);
+    // inside: the faint fill when "color all" is on, else the plain card color
+    const inner = o.all ? `color-mix(in srgb, ${col} ${Math.round(8 + 14 * Math.min(1, sizeOf(med)))}%, var(--surface-1))` : 'var(--surface-1)';
+    const cNeg = toneCol(tone({ ...info, delta: -1 })), cPos = toneCol(tone({ ...info, delta: 1 })), at = Math.round((1 - posShare) * 100);
+    return `<span class="fx-chip" style="border:2px solid transparent;padding:0 4px;background:linear-gradient(${inner}, ${inner}) padding-box, linear-gradient(115deg, ${cNeg} ${at}%, ${cPos} ${at}%) border-box">${text}</span>`;
+  }
+  if (o.all) return `<span class="fx-chip" style="background:color-mix(in srgb, ${col} ${Math.round(8 + 14 * Math.min(1, sizeOf(med)))}%, transparent)">${text}</span>`;
+  return null;
+};
+const nsOpts = pre => ({ all: document.getElementById(pre + 'ColorAll').checked, ring: document.getElementById(pre + 'Ring').checked });
 // a column's highlight rule, for its header tooltip
 const fxThreshold = (info, level) => `colored when significant at ${level}% and at least ${fmtDelta({ ...info, delta: BLANK(info) }).replace(/^\+/, '±')}`;
 const SE_FLOOR = s => s.kind === 'rate' ? 0.01 * span(s) / 0.25 : 0.01;  // a zero-width interval isn't infinite precision
 // short headers; the full name, direction, scale and the column's spread go in the tooltip
 const SHORT = { pass: 'pass<br>rate', timeout: 'time-<br>outs', out_tokens: 'output<br>tokens', duration: 'duration',
-  steps: 'tries /<br>calls', requests: 'requests', think_cut: 'think<br>cut-offs', reason_req: 'reason<br>/ req', answer_req: 'answer<br>/ req',
+  steps: 'tries /<br>calls', requests: 'turns', think_cut: 'think<br>cut-offs', reason_req: 'reason<br>/ turn', answer_req: 'answer<br>/ turn',
   tests_frac: 'tests<br>passed', malformed: 'mal-<br>formed', tool_err: 'tool<br>errors', edit_err: 'edit<br>errors',
   done_wrong: 'done<br>wrong', syntax: 'syntax<br>errors', knows_src: 'knows<br>source', recalled: 'recalled<br>solution',
   fetched: 'fetched<br>source', think_code: 'code in<br>thinking', copied: 'copied<br>from think',
-  spill: 'think<br>spill', looped: 'looped', loop_stuck: 'stuck<br>loop', stability: 'stab-<br>ility' };
+  spill: 'think<br>spill', looped: 'looped', loop_stuck: 'stuck<br>loop', stability: 'stab-<br>ility', own_tests: 'own<br>tests',
+  capability: 'capab-<br>ility', tok_req: 'tokens<br>/ turn', net_tokens: 'net<br>tokens', sd_any: 'overall<br>spread', glitch_end: 'glitch<br>ends', sd_steps: 'tries<br>spread', sd_requests: 'turn<br>spread', sd_out_tokens: 'token<br>spread', sd_duration: 'duration<br>spread', sd_tests_frac: 'tests<br>spread', sd_reason_req: 'reason<br>spread' };
 
 function renderSettingsEffects() {
   const raw = fxData.settings;
@@ -3077,8 +3312,11 @@ function renderSettingsEffects() {
     // one option per setting: picking one shows every change that includes it
     [...new Set(raw.flatMap(c => c.axes))].sort().forEach(k => axisSel.add(new Option(k, k)));
     fxRestore();
-    ['fxSingle', 'fxWeak', 'fxAxis', 'fxLevel'].forEach(id => document.getElementById(id).addEventListener('change', renderSettingsEffects));
+    fxCatState = makeCats(document.getElementById('fxCats'), 'evalViz.fxCats', renderSettingsEffects);
+    ['fxSingle', 'fxWeak', 'fxColorAll', 'fxRing', 'fxAxis', 'fxLevel'].forEach(id => document.getElementById(id).addEventListener('change', renderSettingsEffects));
     document.getElementById('fxAxes').addEventListener('click', e => {
+      const th = e.target.closest('th[data-sort]');
+      if (th) { nextSort(fxSortState, th.dataset.sort); renderSettingsEffects(); return; }
       const tr = e.target.closest('tr[data-fx]');
       if (!tr) return;
       const k = tr.dataset.fx;
@@ -3100,6 +3338,7 @@ function renderSettingsEffects() {
   const statKeys = [], statInfo = {};
   all.forEach(c => c.stats.forEach(s => { if (!(s.key in statInfo)) { statKeys.push(s.key); statInfo[s.key] = s; } }));
   statKeys.sort((a, b) => colIdx(a) - colIdx(b));
+  for (let i = statKeys.length - 1; i >= 0; i--) if (!catVisible(fxCatState.on, statKeys[i])) statKeys.splice(i, 1);
 
   const groupKey = c => c.axes.map(a => `${a} ${c.a[a]}→${c.b[a]}`).join(', ');
   const byGroup = new Map();
@@ -3173,8 +3412,10 @@ function renderSettingsEffects() {
   // none go last, grayed.
   const hits = Object.fromEntries(statKeys.map(sk => [sk, rows.filter(r => { const p = pool(r.cs, sk); return p && (p.conf > 0 || p.purple >= 50); }).length]));
   const major = k => hits[k] > rows.length / 2;
-  const colKeys = [...statKeys].sort((a, b) => (major(b) - major(a)) || (major(a) ? 0 : hits[b] - hits[a]) || colIdx(a) - colIdx(b));
+  const colKeys = [...statKeys].sort((a, b) => (sumRank(a) - sumRank(b)) || (major(b) - major(a)) || (major(a) ? 0 : hits[b] - hits[a]) || colIdx(a) - colIdx(b));
   const loud = new Set(colKeys.filter(k => hits[k] > 0));
+  const fxEff = effSort(fxSortState, fxCatState);
+  sortRows(rows, fxEff, (r, k) => k === '_name' ? r.key : pool(r.cs, k)?.med.delta);
 
   // A summary cell: the pooled change. Color = direction (green better / red worse / blue for
   // neutral stats), opacity = size x confidence; solid results in opposite directions turn
@@ -3190,7 +3431,7 @@ function renderSettingsEffects() {
     if (Math.abs(p.med.delta) < BLANK(info)) return '<td></td>';
     const tip = esc(`pooled over ${p.pts.length} comparison${p.pts.length > 1 ? 's' : ''}: ${fmtDelta(p.med)}, ${level}% interval ${fmtDelta({ ...info, delta: p.ci[0] })} … ${fmtDelta({ ...info, delta: p.ci[1] })}` +
       (p.conf ? '' : '\nnot significant: the interval includes 0'));
-    if (!p.conf) return `<td class="fx-meta" title="${tip}">${fmtDelta(p.med)}</td>`;
+    if (!p.conf) { const ch = nsChip(fmtDelta(p.med), info, p.med, nsOpts('fx'), p.ci); return ch ? `<td title="${tip}">${ch}</td>` : `<td class="fx-meta" title="${tip}">${fmtDelta(p.med)}</td>`; }
     const base = `color-mix(in srgb, #8a6a9a ${p.purple}%, ${toneCol(tone(p.med))})`;
     // floor of 22%: any significant cell must read as colored, not gray
     const pct = Math.round(22 + 38 * Math.min(1, sizeOf(p.med)) * p.conf);
@@ -3265,13 +3506,13 @@ function renderSettingsEffects() {
   const headTip = k => {
     const info = statInfo[k], vals = shown.flatMap(c => c.stats.filter(s => s.key === k));
     const ds = vals.map(s => s.delta).sort((a, b) => a - b);
-    return [info.label, dirNote(info) === 'neutral' ? 'neutral: no better direction (blue = up, teal = down)' : `${dirNote(info)} (green = better, red = worse)`,
+    return [info.label, COL_DESC[k] || '', dirNote(info) === 'neutral' ? 'neutral: no better direction (blue = up, teal = down)' : `${dirNote(info)} (green = better, red = worse)`,
       fxThreshold(info, level),
       info.kind === 'rate' ? `change in percentage points; full-strength color at ${Math.round(span(info) * 100)} points`
         : 'B vs A as a per-task ratio; full-strength color at ×2 / ÷2',
-      ds.length ? `${ds.length} comparisons measure it: ${fmtDelta({ ...info, delta: ds[0] })} … ${fmtDelta({ ...info, delta: ds[ds.length - 1] })} (median ${fmtDelta({ ...info, delta: ds[ds.length >> 1] })}), ${vals.filter(s => s.sig).length} outside noise` : 'no data'].join('\n');
+      ds.length ? `${ds.length} comparisons measure it: ${fmtDelta({ ...info, delta: ds[0] })} … ${fmtDelta({ ...info, delta: ds[ds.length - 1] })} (median ${fmtDelta({ ...info, delta: ds[ds.length >> 1] })}), ${vals.filter(s => s.sig).length} outside noise` : 'no data'].filter(Boolean).join('\n');
   };
-  tbl.innerHTML = rows.length ? `<tr><th>change (models) — click to expand</th>${colKeys.map(k => `<th title="${esc(headTip(k) + `\n${hits[k]} of ${rows.length} rows shown have it colored`)}"${loud.has(k) ? '' : ' class="fx-quiet"'}>${SHORT[k] || esc(statInfo[k].label)}</th>`).join('')}</tr>` +
+  tbl.innerHTML = rows.length ? `<tr>${sortTh('_name', fxEff, 'change (models) — click to expand')}${colKeys.map(k => sortTh(k, fxEff, SHORT[k] || esc(statInfo[k].label), `title="${esc(headTip(k) + `\n${hits[k]} of ${rows.length} rows shown have it colored`)}"${loud.has(k) ? '' : ' class="fx-quiet"'}`)).join('')}</tr>` +
     rows.map(({ cs, key, strong, any }) => {
       const open = fxOpen.has(key);
       const also = [...new Set(cs.flatMap(c => c.also_differs || []))];
@@ -3299,7 +3540,7 @@ const soOpen = new Set();
 let soInit = false;
 function renderStandouts() {
   const kindEl = () => document.querySelector('input[name="soKind"]:checked');
-  const ids = ['soWhich', 'soAll', 'soLevel', 'soAbs'];
+  const ids = ['soWhich', 'soAll', 'soLevel', 'soAbs', 'soColorAll', 'soRing'];
   if (!soInit) {
     soInit = true;
     try {
@@ -3310,13 +3551,18 @@ function renderStandouts() {
         document.getElementById('soWhich').value = st.which || '';
         document.getElementById('soAll').checked = !!st.all;
         document.getElementById('soAbs').checked = !!st.abs;
+        document.getElementById('soColorAll').checked = !!st.colorAll;
+        document.getElementById('soRing').checked = !!st.ring;
         if (st.level) document.getElementById('soLevel').value = st.level;
         (st.open || []).forEach(k => soOpen.add(k));
       }
     } catch (e) { /* storage unavailable */ }
+    soCatState = makeCats(document.getElementById('soCats'), 'evalViz.soCats', renderStandouts);
     ids.forEach(id => document.getElementById(id).addEventListener('change', renderStandouts));
     document.querySelectorAll('input[name="soKind"]').forEach(r => r.addEventListener('change', renderStandouts));
     document.getElementById('soTable').addEventListener('click', e => {
+      const th = e.target.closest('th[data-sort]');
+      if (th) { nextSort(soSortState, th.dataset.sort); renderStandouts(); return; }
       const tr = e.target.closest('tr[data-so]');
       if (!tr) return;
       const k = tr.dataset.so;
@@ -3332,7 +3578,7 @@ function renderStandouts() {
   const shown = s => abs ? fmtVal(s, s.b) : fmtDelta(s);
   const diffTip = s => abs ? `\n${fmtDelta(s)} vs ${s.point ? 'its usual' : 'the rest'}` : '';
   try {
-    localStorage.setItem(SO_STORAGE_KEY, JSON.stringify({ kind, which, all: showAll, abs, level, open: [...soOpen] }));
+    localStorage.setItem(SO_STORAGE_KEY, JSON.stringify({ kind, which, all: showAll, abs, colorAll: document.getElementById('soColorAll').checked, ring: document.getElementById('soRing').checked, level, open: [...soOpen] }));
   } catch (e) { /* storage unavailable */ }
   const Z = { 50: 0.674, 60: 0.842, 70: 1.036, 80: 1.282, 90: 1.645, 95: 1.960, 99: 2.576 }[level];
   // each stat at the chosen level: interval, sig, and how clearly past the bar (0..1)
@@ -3346,23 +3592,31 @@ function renderStandouts() {
   const byLabel = new Map(items.filter(it => !it.group).map(it => [it.label, it]));
   const statInfo = {};
   items.forEach(it => it.stats.forEach(s => { statInfo[s.key] = statInfo[s.key] || s; }));
-  const score = it => it.stats.reduce((a, s) => a + s.conf * Math.min(1, sizeOf(s)), 0);
+  const score = it => it.stats.filter(s => catVisible(soCatState.on, s.key)).reduce((a, s) => a + s.conf * Math.min(1, sizeOf(s)), 0);
   const rows = items.filter(it => !which || (which === 'group') === it.group)
     .map(it => ({ it, score: score(it) })).filter(r => showAll || r.score > 0)
     .sort((a, b) => b.score - a.score || a.it.label.localeCompare(b.it.label));
   // columns as in the settings table: colored in over half the rows first (fixed order),
   // then by count, ties in fixed order; none last, grayed
-  const keys = Object.keys(statInfo);
+  const keys = Object.keys(statInfo).filter(k => catVisible(soCatState.on, k));
   const hits = Object.fromEntries(keys.map(k => [k, rows.filter(r => r.it.stats.some(s => s.key === k && s.sig)).length]));
   const major = k => hits[k] > rows.length / 2;
-  const cols = keys.sort((a, b) => (major(b) - major(a)) || (major(a) ? 0 : hits[b] - hits[a]) || colIdx(a) - colIdx(b));
+  const cols = keys.sort((a, b) => (sumRank(a) - sumRank(b)) || (major(b) - major(a)) || (major(a) ? 0 : hits[b] - hits[a]) || colIdx(a) - colIdx(b));
+  const soEff = effSort(soSortState, soCatState);
+  sortRows(rows, soEff, (r, k) => k === '_name' ? r.it.label : (x => x && (abs ? x.b : x.delta))(r.it.stats.find(s => s.key === k)));
   const unit = kind === 'models' ? 'tasks' : 'models';
   const cell = s => {
     if (!s) return '<td class="fx-meta">–</td>';
-    if (Math.abs(s.delta) < BLANK(s)) return `<td${abs ? ' class="fx-meta"' : ''} title="${esc(`${fmtVal(s, s.a)} (rest) → ${fmtVal(s, s.b)}: too small to show, ${s.n} ${unit}`)}">${abs ? fmtVal(s, s.b) : ''}</td>`;
+    if (Math.abs(s.delta) < BLANK(s)) {
+      const btip = esc(`${fmtVal(s, s.a)} (rest) → ${fmtVal(s, s.b)}: too small to show, ${s.n} ${unit}`);
+      // absolute values + "color all": even a negligible difference still gets its faint tint
+      const o = nsOpts('so');
+      if (abs && o.all) return `<td title="${btip}"><span class="fx-chip" style="background:color-mix(in srgb, ${toneCol(tone(s))} 8%, transparent)">${fmtVal(s, s.b)}</span></td>`;
+      return `<td${abs ? ' class="fx-meta"' : ''} title="${btip}">${abs ? fmtVal(s, s.b) : ''}</td>`;
+    }
     const tip = esc(`${fmtVal(s, s.a)} (rest) → ${fmtVal(s, s.b)}, ${level}% interval ${fmtDelta({ ...s, delta: s.lo })} … ${fmtDelta({ ...s, delta: s.hi })}, ${s.n} ${unit}` +
       (s.sig ? '' : `\nnot significant: the interval includes 0${Math.abs(s.delta) < BLANK(s) ? ' (or the change is too small)' : ''}`) + diffTip(s));
-    if (!s.sig) return `<td class="fx-meta" title="${tip}">${shown(s)}</td>`;
+    if (!s.sig) { const ch = nsChip(shown(s), s, s, nsOpts('so'), [s.lo, s.hi]); return ch ? `<td title="${tip}">${ch}</td>` : `<td class="fx-meta" title="${tip}">${shown(s)}</td>`; }
     const pct = Math.round(22 + 38 * Math.min(1, sizeOf(s)) * s.conf);  // floor: see the settings table
     return `<td title="${tip}">` +
       `<span class="fx-chip" style="background:color-mix(in srgb, ${toneCol(tone(s))} ${pct}%, transparent)">${shown(s)}</span></td>`;
@@ -3371,7 +3625,7 @@ function renderStandouts() {
   // or for a test / test group each model's own difference vs its usual (one point, no
   // interval: one model's attempts at one test; colored when past the column's big mark)
   const subItems = it => it.perModel
-    ? it.perModel.map(u => ({ label: u.model, quant: u.quant, units: u.n, unitWord: 'attempts', stats: (data.fx.stats).map((st, i) => {
+    ? it.perModel.map(u => ({ label: u.model, quant: u.quant, units: u.n, unitWord: 'attempts', stats: FXS.map((st, i) => {
         const a = u.a[i], b = u.b[i];
         if (a == null || b == null || (st.kind === 'ratio' && !(a > 0 && b > 0))) return null;
         const delta = st.kind === 'rate' ? b - a : b / a - 1;
@@ -3395,7 +3649,7 @@ function renderStandouts() {
   };
   const dot = it => it.quant ? `<span class="quant-dot" style="background:var(${QUANT_VAR[it.quant] || '--quant-other'})"></span>` : '';
   const tbl = document.getElementById('soTable');
-  tbl.innerHTML = rows.length ? `<tr><th>${kind === 'models' ? 'model — groups expand' : 'test — click for each model'}</th>${cols.map(k => `<th title="${esc(statInfo[k].label + '\n' + dirNote(statInfo[k]) + '\n' + fxThreshold(statInfo[k], level) + `\n${hits[k]} of ${rows.length} rows shown have it colored`)}"${hits[k] ? '' : ' class="fx-quiet"'}>${SHORT[k] || esc(statInfo[k].label)}</th>`).join('')}</tr>` +
+  tbl.innerHTML = rows.length ? `<tr>${sortTh('_name', soEff, kind === 'models' ? 'model — groups expand' : 'test — click for each model')}${cols.map(k => sortTh(k, soEff, SHORT[k] || esc(statInfo[k].label), `title="${esc(statInfo[k].label + '\n' + (COL_DESC[k] ? COL_DESC[k] + '\n' : '') + dirNote(statInfo[k]) + '\n' + fxThreshold(statInfo[k], level) + `\n${hits[k]} of ${rows.length} rows shown have it colored`)}"${hits[k] ? '' : ' class="fx-quiet"'}`)).join('')}</tr>` +
     rows.map(({ it }) => {
       const exp = expandable(it), open = exp && soOpen.has(it.label);
       const head = `<tr class="${exp ? 'fx-row' : ''}"${exp ? ` data-so="${esc(it.label)}"` : ''}><td title="${esc(it.group ? it.members.join('\n') : '')}">` +
@@ -3506,7 +3760,7 @@ function renderModelList() {
   const shown = shownModels();
   modelListEl.innerHTML = shown.length
     ? shown.map(m =>
-        `<label class="filter-item"><input type="checkbox" class="model-cb" value="${m}" ${activeModels.has(m) ? 'checked' : ''}>${quantDotHtml(m)}<span class="label-text" title="${m}">${m}</span> <span class="filter-run-count">(${exercisesTestedByModel.get(m)})</span></label>`
+        `<label class="filter-item${maskedModels.has(m) ? ' mask-zero' : ''}"><input type="checkbox" class="model-cb" value="${m}" ${activeModels.has(m) ? 'checked' : ''}>${quantDotHtml(m)}<span class="label-text" title="${m}">${m}</span> <span class="filter-run-count">(${exercisesTestedByModel.get(m)})</span></label>`
       ).join('')
     : '<p style="font-size:12px;color:var(--text-muted);margin:4px 0;">No models match.</p>';
   renderModelCount();
@@ -3632,7 +3886,7 @@ function renderExerciseList() {
   const shown = shownExercises();
   exerciseListEl.innerHTML = shown.length
     ? shown.map(ex =>
-        `<label class="filter-item"><input type="checkbox" class="exercise-cb" value="${ex}" ${activeExercises.has(ex) ? 'checked' : ''}><span class="label-text" title="${ex}">${ex}</span> <span class="filter-run-count">(${attemptsByLabel.get(ex) ?? 0})</span></label>`
+        `<label class="filter-item${disabledRunners.has(runnerOf(ex)) ? ' mask-zero' : ''}"><input type="checkbox" class="exercise-cb" value="${ex}" ${activeExercises.has(ex) ? 'checked' : ''}><span class="label-text" title="${ex}">${ex}</span> <span class="filter-run-count">(${attemptsByLabel.get(ex) ?? 0})</span></label>`
       ).join('')
     : '<p style="font-size:12px;color:var(--text-muted);margin:4px 0;">No exercises match.</p>';
   exerciseFilterCountEl.textContent = `(${activeExercises.size}/${exerciseLabels.length})`;
