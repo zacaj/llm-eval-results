@@ -132,9 +132,10 @@ def short_label(srv_m_path):
 
 # Quant bucket, detected straight from the gguf filename rather than hand-mapped —
 # every current variant's name carries its own quant tag, so this stays correct as
-# models are added without another table to maintain. Charts fall back to "other"
-# (rendered neutral gray) for anything that doesn't match, rather than guessing.
-QUANT_PATTERN = re.compile(r'IQ3_XXS|IQ3_S|IQ4_XS|Q4_K_XL|Q4_K_M|IQ1_M|TQ2_0')
+# models are added without another table to maintain. Any llama.cpp-style tag matches
+# (IQ3_XXS, Q8_0, TQ3_0, BF16...), each getting its own filter group and color; only
+# names with no tag at all fall back to "other" (neutral gray).
+QUANT_PATTERN = re.compile(r'(?<![A-Za-z0-9])(?:IQ|TQ|PQ|MXFP|BF|Q|F)\d+(?:_[A-Z0-9]+)*(?![A-Za-z0-9])')
 
 
 def quant_of(srv_m_path):
@@ -362,6 +363,7 @@ def harbor_attempt(row):
         'tokens_at_pass': _int(row.get('first_pass_out_tokens', '')),
         # thinking blocks, and how many the reasoning budget cut off: the per-block rate is
         # the measure (the per-trial reasoning_cut flag hits most multi-turn trials)
+        'ctx_max': _int(row.get('ctx_max', '')),
         'think_blocks': _int(row.get('thinking_blocks', '')), 'think_cuts': _int(row.get('thinking_cutoffs', '')),
         'end_reason': end, 'flags': flags, 'trust': outcomes.trust(flags),
         'timed_out': end == 'timeout', 'ctx_exhausted': 0,
@@ -519,10 +521,10 @@ EFFECT_STATS = [
      lambda a: _px(a, 'writes_from_think') / _px(a, 'big_writes') if _px(a, 'big_writes') else None),
     ('spill', 'attempts where thinking spilled into the answer (Harbor)', 'rate', 'down',
      lambda a: float('think_spill' in a['flags']) if a['runner'] == 'harbor' else None),
-    ('looped', 'attempts that looped (Harbor)', 'rate', 'down',
-     lambda a: float('looped' in a['flags']) if a['runner'] == 'harbor' else None),
-    ('loop_stuck', 'attempts with a loop that never recovered (Harbor)', 'rate', 'down',
-     lambda a: float('loop_stuck' in a['flags']) if a['runner'] == 'harbor' else None),
+    ('looped', 'loops per thinking block (Harbor)', 'rate', 'down',
+     lambda a: _px(a, 'loop_blocks') / _px(a, 'thinking_blocks') if _px(a, 'thinking_blocks') and _px(a, 'loop_blocks') is not None else None),
+    ('loop_stuck', 'share of loops that never recovered (Harbor)', 'rate', 'down',
+     lambda a: _px(a, 'loop_unrecovered') / _px(a, 'loop_blocks') if _px(a, 'loop_blocks') else None),
     # glitch / quality counters (None where a runner doesn't record them)
     ('tests_frac', 'tests passed (fraction, Harbor)', 'rate', 'up',
      lambda a: _px(a, 'tests_frac_adj') if _px(a, 'tests_frac_adj') is not None else _px(a, 'tests_frac')),
@@ -531,12 +533,16 @@ EFFECT_STATS = [
     ('malformed', 'attempts with malformed calls / edits', 'rate', 'down', lambda a: float('malformed' in a['flags'])),
     # one number for all degeneration signs above, weighted by severity (outcomes.GLITCH_WEIGHTS);
     # test results don't enter it. Aider can't see loops / spills, so compare within a runner.
-    ('stability', 'stability: 1 - severity-weighted glitches per attempt', 'rate', 'up',
-     lambda a: None if a['end_reason'] == 'harness' else 1 - outcomes.instability(a['flags'], a['end_reason'])),
+    ('stability', 'stability: 1 - severity-weighted glitches per attempt (repeats count each time)', 'rate', 'up',
+     lambda a: None if a['end_reason'] == 'harness' else 1 - outcomes.instability(a['flags'], a['end_reason'], outcomes.flag_counts(a['raw'], a['runner']))),
     ('tool_err', 'tool calls that errored (Harbor)', 'rate', 'down',
      lambda a: _px(a, 'tool_errors') / _px(a, 'tool_calls') if _px(a, 'tool_calls') else None),
-    ('edit_err', 'attempts with failed edits (Harbor)', 'rate', 'down',
-     lambda a: float('edit_errors' in a['flags']) if a['runner'] == 'harbor' else None),
+    # behaviour to watch, not good/bad: of the runs of consecutive non-zero shell exits, the share that
+    # reach 3+ (pooled over runs, see EFFECT_WEIGHTS)
+    ('bash_streak', 'share of non-zero shell-exit streaks that reach 3+ (Harbor)', 'rate', None,
+     lambda a: _px(a, 'bash_streaks3') / _px(a, 'bash_streaks') if _px(a, 'bash_streaks') else None),
+    ('edit_err', 'edit calls that failed (Harbor)', 'rate', 'down',
+     lambda a: _px(a, 'edit_errors') / _px(a, 'edits') if _px(a, 'edits') else None),
     ('glitch_end', 'attempts that ended in a glitch (broken output / raw tool markup)', 'rate', 'down',
      lambda a: float(a['end_reason'] == 'glitch' or 'markup_final' in a['flags'])),
     ('done_wrong', 'declared done with tests failing (Harbor)', 'rate', 'down',
@@ -556,10 +562,23 @@ EFFECT_STATS = [
     ('reason_req', 'reasoning tokens / turn', 'ratio', None, lambda a: _per_req(a, 'px_reasoning_tokens') or None),
     ('answer_req', 'answer tokens / turn', 'ratio', None, lambda a: _per_req(a, 'px_answer_tokens') or None),
 ]
+# stats that pool over events, not attempts: the page's per-list mean weights each attempt's value
+# by this (default 1), so an attempt with 4 streaks counts 4x one with a single streak
+# (stability-style stats: two errors in one attempt count as worse than one, so they pool per event)
+EFFECT_WEIGHTS = {
+    'bash_streak': lambda a: _px(a, 'bash_streaks'),
+    'tool_err': lambda a: _px(a, 'tool_calls'),
+    'edit_err': lambda a: _px(a, 'edits'),
+    'think_cut': lambda a: a['think_blocks'],
+    'think_code': lambda a: _px(a, 'think_chars'),
+    'copied': lambda a: _px(a, 'big_writes'),
+    'looped': lambda a: _px(a, 'thinking_blocks'),
+    'loop_stuck': lambda a: _px(a, 'loop_blocks'),
+}
 # a rate stat's natural range: the change that counts as a full-size effect (the page's
 # thresholds scale with it). Cut-off rates live in 0-10%, so 25 points would make every
 # change tiny.
-EFFECT_RATE_SPAN = {'think_cut': 0.05, 'stability': 0.10, 'tool_err': 0.10, 'edit_err': 0.10}
+EFFECT_RATE_SPAN = {'think_cut': 0.05, 'looped': 0.05, 'stability': 0.10, 'tool_err': 0.10, 'edit_err': 0.10}
 EFFECT_SETTING_KEYS = ('effort', 'think', 'temp', 'top_p', 'top_k', 'min_p', 'dry')
 # Name tokens that make poor groups: quant fragments (the quant itself is a group via
 # QUANT_PATTERN), and MTP (not named consistently: many MTP files don't say so).
@@ -587,6 +606,10 @@ def model_groups(ggufs):
         for q in QUANT_PATTERN.findall(base):
             tok[q].add(m)
             quants.add(q)
+    # pieces of a quant tag ('IQ3', 'XXS') aren't name tokens of their own
+    frag = {f.lower() for q in quants for f in q.split('_')}
+    for m in ggufs:
+        base = _SHARD_RE.sub('', m).removesuffix('.gguf')
         for ph in _GROUP_PHRASES:
             if ph in base:
                 tok[ph].add(m)
@@ -594,7 +617,7 @@ def model_groups(ggufs):
         for t_ in re.split(r'[-_ ]+', base):
             # a leading digit is a version fragment ('4.7'), unless it's a size ('27B')
             numeric = t_[0].isdigit() and not re.fullmatch(r'\d+(\.\d+)?B', t_)
-            if len(t_) >= 2 and t_.lower() not in _TOKEN_SKIP and not numeric and t_ not in quants:
+            if len(t_) >= 2 and t_.lower() not in _TOKEN_SKIP and t_.lower() not in frag and not numeric and t_ not in quants:
                 tok[_TOKEN_ALIAS.get(t_, t_)].add(m)
     groups = {}
     for t_, ms in tok.items():
@@ -640,9 +663,13 @@ def fx_export(attempts):
         for key, label, kind, better, fn in EFFECT_STATS:
             v = fn(a)
             x.append(None if v is None else round(v, 4))
+        xw = {}
+        for i, (key, *_) in enumerate(EFFECT_STATS):
+            if key in EFFECT_WEIGHTS and x[i] is not None:
+                xw[i] = EFFECT_WEIGHTS[key](a)
         recs.append({'m': short_label(a['model']), 'g': short_label(gguf), 'q': quant_of(gguf), 'c': combo_idx[st],
                      't': task_label(a['task']), 'v': a['variant'], 'l': a['language'], 'w': f"{a['language']}/{a['exercise']}",
-                     's': a['seed'], 'ts': a['timestamp'], 'x': x})
+                     's': a['seed'], 'ts': a['timestamp'], 'x': x, **({'xw': xw} if xw else {})})
     ggufs = sorted({a['model'].split('@')[0] for a in attempts})
     return {
         'stats': [{'key': k, 'label': lb, 'kind': kd, 'better': bt,
@@ -979,7 +1006,7 @@ def build_dataset(rows, excluded_harness=0):
     cost_points = [{
         'exercise': pin_label[row['task']],
         'model': short_label(row['model']), 'pass': row['pass'],
-        'tokens': row['out_tokens'], 'duration': round(row['duration'], 1),
+        'tokens': row['out_tokens'], 'duration': round(row['duration'], 1), 'ctx_max': row.get('ctx_max'),
         'tries': _s(row['steps']), 'timestamp': row['timestamp'], 'seed': row['seed'],
         'eff': round(row_eff[id(row)], 4) if row_eff[id(row)] is not None else None,
         'end_reason': row['end_reason'],

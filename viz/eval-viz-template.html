@@ -699,10 +699,11 @@
 
   <div class="card">
     <h2>What stands out</h2>
-    <p class="desc"><b>Models</b>: each gguf (its settings variants pooled) against every other model, on the tasks it ran: per task its mean vs the other models' (each model's own mean, averaged), pooled over tasks. <b>Tests</b>: each task against the same models' other tasks in its suite: per model its mean on this task vs its usual, pooled over models, so a test where models time out, glitch or spend more than usual stands out. Rows marked <i>group</i> do the same for several at once (ggufs sharing a name token, e.g. a family or quant; or a language / a whole suite), so two similar models stand out together instead of each diluting the other's baseline; expand a group for its members; on the tests tab, expand any row to see each model's own difference (one point per model, colored when past the column's big mark: 10 points / 25%). Cells and colors work as in the settings table (green better, red worse, neutral stats blue when up and teal when down; colored = significant at the chosen level; gray number = not). With this many rows, some colored cells are chance at any level, so the default here is 95% and rows are sorted by how much stands out. Intervals are normal approximations over tasks (models) / models (tests). Follows the filter panel (models, tests, runners, dates).</p>
+    <p class="desc"><b>Models</b>: each gguf (its settings variants pooled) against every other model, on the tasks it ran: per task its mean vs the other models' (each model's own mean, averaged), pooled over tasks. <b>Tests</b>: each task against the same models' other tasks in its suite: per model its mean on this task vs its usual, pooled over models, so a test where models time out, glitch or spend more than usual stands out. Rows marked <i>group</i> do the same for several at once (ggufs sharing a name token, e.g. a family or quant; or a language / a whole suite), so two similar models stand out together instead of each diluting the other's baseline; expand a group for its members; on the tests tab, expand any row to see each model's own difference (one point per model, colored when past the column's big mark: 10 points / 25%). Cells and colors work as in the settings table (green better, red worse, neutral stats blue when up and teal when down; colored = significant at the chosen level; gray number = not). With this many rows, some colored cells are chance at any level, so the default here is 95% and rows are sorted by how much stands out. Intervals are normal approximations over tasks (models) / models (tests). The <b>vs</b> dropdown picks one model / test (or group) as the baseline: every other row is then compared to it alone (on the tasks / models they share) instead of to the rest. Follows the filter panel (models, tests, runners, dates).</p>
     <div class="fx-controls">
       <label><input type="radio" name="soKind" value="models" checked> models</label>
       <label><input type="radio" name="soKind" value="tests"> tests</label>
+      <label title="compare every row to one chosen row instead of to the rest">vs <select id="soBase"></select></label>
       <label>show <select id="soWhich"><option value="">singles and groups</option><option value="single">singles only</option><option value="group">groups only</option></select></label>
       <label><input type="checkbox" id="soAll"> also show rows with nothing significant</label>
       <label title="also tint results that aren't significant (fainter than the significant ones)"><input type="checkbox" id="soColorAll"> color all values</label>
@@ -785,14 +786,25 @@
 
   <div class="card">
     <h2>Reasoning length per request, by model &amp; effort</h2>
-    <p class="desc">How long each model thinks per request (Harbor runs; aider doesn't log it). Each row is a histogram of reasoning tokens per request for one model at one effort and thinking cap (bar color = effort: <b style="color:var(--seq-blue)">low</b>, <b style="color:var(--neutral-down)">medium</b>, <b style="color:var(--seq-purple)">high/xhigh</b>). The dashed line is the cap, the black tick the median, and the <b style="color:var(--status-critical)">red</b> part of a bar is the requests the cap actually cut off (brighter when a larger share of that row was cut). Bar height is on a log scale (log of count + 1) and each row is scaled to its own tallest bin, so thin tails stay visible but compare shapes, not heights; the label gives the share cut. Follows the filter panel.</p>
+    <p class="desc">How long each model thinks per request (Harbor runs; aider doesn't log it). One line per model at one effort and thinking cap: the share of its requests (log scale, per 250 tokens of bin width, so differently sized bins compare) at each reasoning length. Empty bins drop to the 0 line. The tail is noisy because it holds few requests; the bin width control (or the default auto, which widens through the tail up to a chosen maximum) smooths it. Each model gets its own color, shared by all its efforts and caps (the legend shows which), its dots are filled with the quant color (as in the other charts), and the dash pattern is the effort (solid = low, dashed = medium, dotted = high/xhigh). The dashed red verticals are the caps, and the <b style="color:var(--status-critical)">red dots</b> are bins holding requests the cap actually cut off (brighter when a larger share of that model's requests were cut). Hover a line or a legend entry to isolate it; the effort checkboxes above the chart hide an effort, and hovering one dims every other effort. Follows the filter panel.</p>
     <div class="detail-controls">
-      <label for="reasonSortBy" style="font-size:12px;color:var(--text-secondary)">Sort rows by</label>
+      <label for="reasonSortBy" style="font-size:12px;color:var(--text-secondary)">Sort legend by</label>
       <select id="reasonSortBy">
         <option value="cut">Cap-hit rate</option>
         <option value="median">Median length</option>
         <option value="p90">90th percentile</option>
         <option value="alpha">Alphabetical</option>
+      </select>
+      <label for="reasonBin" style="font-size:12px;color:var(--text-secondary);margin-left:12px">Bin width</label>
+      <select id="reasonBin">
+        <option value="auto:500">Auto, tail max 500</option>
+        <option value="auto:1000" selected>Auto, tail max 1000</option>
+        <option value="auto:2000">Auto, tail max 2000</option>
+        <option value="auto:4000">Auto, tail max 4000</option>
+        <option value="250">250</option>
+        <option value="500">500</option>
+        <option value="1000">1000</option>
+        <option value="2000">2000</option>
       </select>
       <span class="detail-count" id="reasonCount"></span>
     </div>
@@ -898,6 +910,8 @@
     <div id="costSpreadChartTokens"></div>
     <div class="cost-panel-label">Duration</div>
     <div id="costSpreadChartDuration"></div>
+    <div class="cost-panel-label">Peak context (Harbor only)</div>
+    <div id="costSpreadChartCtx"></div>
     <div class="legend">
       <div class="legend-item"><span class="swatch" style="background:var(--status-good);opacity:0.4;border-radius:50%"></span>Individual pass</div>
       <div class="legend-item"><span class="swatch" style="background:var(--status-critical);opacity:0.4;border-radius:50%"></span>Individual fail</div>
@@ -944,7 +958,14 @@ const tt = document.getElementById('tooltip');
 const QUANT_VAR = { 'IQ3_XXS': '--quant-iq3xxs', 'IQ4_XS': '--quant-iq4xs', 'Q4_K_XL': '--quant-q4kxl', 'Q4_K_M': '--quant-q4km',
   'IQ3_S': '--quant-iq3s', 'IQ1_M': '--quant-iq1m', 'TQ2_0': '--quant-tq20' };
 function quantOf(modelLabel) { return data.model_quant[modelLabel] || 'other'; }
-function quantColorVar(modelLabel) { return `var(${QUANT_VAR[quantOf(modelLabel)] || '--quant-other'})`; }
+// Known quants keep their hand-tuned theme vars; any other tag gets a stable hue from its name.
+function quantColor(q) {
+  if (QUANT_VAR[q]) return `var(${QUANT_VAR[q]})`;
+  if (!q || q === 'other') return 'var(--quant-other)';
+  let h = 0; for (const c of q) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return `hsl(${(h * 137.508) % 360 | 0} 62% 52%)`;
+}
+function quantColorVar(modelLabel) { return quantColor(quantOf(modelLabel)); }
 function quantDotHtml(modelLabel) {
   return `<span class="quant-dot" style="background:${quantColorVar(modelLabel)}" title="${quantOf(modelLabel)}"></span>`;
 }
@@ -1385,7 +1406,7 @@ document.getElementById('statRow').innerHTML = stats.map(s =>
 
 const quantsPresent = [...new Set(Object.values(data.model_quant))].sort();
 document.getElementById('quantLegend').insertAdjacentHTML('beforeend', quantsPresent.map(q =>
-  `<span class="legend-item"><span class="quant-dot" style="background:var(${QUANT_VAR[q] || '--quant-other'})"></span>${q}</span>`
+  `<span class="legend-item"><span class="quant-dot" style="background:${quantColor(q)}"></span>${q}</span>`
 ).join(''));
 
 // Numbers baked into prose — kept live off activeExercises.size (called again from
@@ -2080,7 +2101,8 @@ function computeCostStats(points, metric) {
 // order: fixed array of exercise labels (shared across panels so columns line up).
 function renderCostSpread(container, points, metric, order) {
   container.innerHTML = '';
-  const unit = metric === 'tokens' ? ' tok' : 's';
+  const unit = metric === 'tokens' ? ' tok' : metric === 'ctx_max' ? ' ctx tok' : 's';
+  points = points.filter(p => p[metric] != null);
   const statsByEx = computeCostStats(points, metric);
   const exercises = order.map(ex => statsByEx.get(ex)).filter(Boolean);
 
@@ -2113,12 +2135,12 @@ function renderCostSpread(container, points, metric, order) {
   tickVals.forEach(v => {
     const y = yScale(v);
     gridSvg += `<line class="scatter-gridline" x1="${M.left}" x2="${W - M.right}" y1="${y}" y2="${y}"/>`;
-    const label = metric === 'tokens' ? Math.round(v).toLocaleString() : Math.round(v) + 's';
+    const label = metric === 'tokens' || metric === 'ctx_max' ? Math.round(v).toLocaleString() : Math.round(v) + 's';
     gridSvg += `<text class="scatter-axis-label" x="${M.left - 8}" y="${y + 4}" text-anchor="end">${label}</text>`;
   });
   gridSvg += `<line class="scatter-axis" x1="${M.left}" x2="${M.left}" y1="${M.top}" y2="${H - M.bottom}"/>`;
   gridSvg += `<line class="scatter-axis" x1="${M.left}" x2="${W - M.right}" y1="${H - M.bottom}" y2="${H - M.bottom}"/>`;
-  const yAxisLabel = metric === 'tokens' ? 'completion tokens' : 'duration (s), log scale';
+  const yAxisLabel = metric === 'tokens' ? 'completion tokens' : metric === 'ctx_max' ? 'peak prompt tokens' : 'duration (s), log scale';
   gridSvg += `<text class="scatter-axis-label" x="${-(M.top + innerH / 2)}" y="16" text-anchor="middle" transform="rotate(-90)">${yAxisLabel}</text>`;
 
   let dotsSvg = '', gapSvg = '', xLabelSvg = '';
@@ -2171,6 +2193,7 @@ function renderCostSpreadSection(cpPoints) {
   document.getElementById('costCount').textContent = `${order.length} exercises, ${cpPoints.length} attempts`;
   renderCostSpread(document.getElementById('costSpreadChartTokens'), cpPoints, 'tokens', order);
   renderCostSpread(document.getElementById('costSpreadChartDuration'), cpPoints, 'duration', order);
+  renderCostSpread(document.getElementById('costSpreadChartCtx'), cpPoints, 'ctx_max', order);
 }
 
 // ---- quality vs. token cost ----
@@ -2957,6 +2980,7 @@ const EFFORT_ORDER = { none: 0, low: 1, medium: 2, high: 3, xhigh: 4 };
 const RUNNER_ORDER = { aider: 0, harbor: 1, 'harbor-tc': 2 };
 let fxData = { settings: [], standouts: { models: [], tests: [] } };
 let fxRecs = [];
+const soBase = { models: '', tests: '' };  // chosen baseline row per tab ('' = the rest)
 // Spread stats: how much repeat runs of one (model, test) disagree on a stat, as a coefficient of
 // variation (sample sd / mean; comparable across stats and test sizes), averaged like any other
 // stat. Appended after the exported stats, so every stat index below runs over FXS. A list of
@@ -2991,7 +3015,8 @@ const fxListMeanCache = new WeakMap();
 function fxListMean(xs) {
   if (fxListMeanCache.has(xs)) return fxListMeanCache.get(xs);
   const S0 = data.fx.stats.length, sum = new Array(S0).fill(0), cnt = new Array(S0).fill(0);
-  for (const r of xs) for (let i = 0; i < S0; i++) if (r.x[i] != null) { sum[i] += r.x[i]; cnt[i]++; }
+  // r.xw[i] = how many events an attempt's value pools (a share of streaks: its streak count), default 1
+  for (const r of xs) for (let i = 0; i < S0; i++) if (r.x[i] != null) { const w = r.xw?.[i] ?? 1; sum[i] += r.x[i] * w; cnt[i] += w; }
   const out = sum.map((x, i) => cnt[i] ? x / cnt[i] : null);
   for (let i = S0; i < FXS.length; i++) if (FXS[i].base >= 0) out.push(fxCv(xs, FXS[i].base));
   const cvs = out.slice(S0).filter(x => x != null);
@@ -3104,7 +3129,7 @@ function fxSettings(recs) {
   return out;
 }
 
-function fxModelStandouts(recs) {
+function fxModelStandouts(recs, baseLabel) {
   // each gguf (settings pooled) vs every other model on its tasks; groups of ggufs
   // sharing a name token vs everything outside the group
   const byTask = new Map();
@@ -3113,30 +3138,35 @@ function fxModelStandouts(recs) {
     fxPush(byTask.get(r.t), r.g, r);
   }
   const quant = new Map(recs.map(r => [r.g, r.q]));
+  // a chosen baseline (a model or a group) replaces "every other model" as the A side
+  const baseMem = baseLabel ? (quant.has(baseLabel) ? new Set([baseLabel])
+    : new Set((data.fx.model_groups.find(g => g.label === baseLabel)?.members || []).filter(g => quant.has(g)))) : null;
   const contrast = members => {
     const units = [];
+    if (baseMem) members = new Set([...members].filter(g => !baseMem.has(g)));
     for (const byG of byTask.values()) {
       const B = [...members].filter(g => byG.has(g)).map(g => byG.get(g));
-      const A = [...byG].filter(([g]) => !members.has(g)).map(([, xs]) => xs);
+      const A = [...byG].filter(([g]) => baseMem ? baseMem.has(g) : !members.has(g)).map(([, xs]) => xs);
       if (B.length && A.length) units.push({ a: fxMeanVec(A), b: fxMeanVec(B) });
     }
     return units;
   };
   const out = [];
+  out.options = [...quant.keys()].sort().concat(data.fx.model_groups.filter(g => g.members.filter(m => quant.has(m)).length >= 2).map(g => g.label));
   for (const g of [...quant.keys()].sort()) {
     const units = contrast(new Set([g])), stats = fxStats(units, 4);
     if (stats.length) out.push({ label: g, quant: quant.get(g), members: [g], units: units.length, group: false, stats });
   }
   for (const grp of data.fx.model_groups) {
     const mem = new Set(grp.members.filter(g => quant.has(g)));
-    if (mem.size < 2 || mem.size > quant.size - 1) continue;
+    if (mem.size < 2 || (!baseMem && mem.size > quant.size - 1)) continue;
     const units = contrast(mem), stats = fxStats(units, 4);
     if (stats.length) out.push({ label: grp.label, quant: grp.quant, members: [...mem].sort(), units: units.length, group: true, stats });
   }
   return out;
 }
 
-function fxTestStandouts(recs) {
+function fxTestStandouts(recs, baseLabel) {
   // each task vs the same models' other tasks in its suite; groups: a language within a
   // suite, and a whole suite
   const byModel = new Map(), variant = new Map(), lang = new Map();
@@ -3146,24 +3176,27 @@ function fxTestStandouts(recs) {
     variant.set(r.t, r.v); lang.set(r.t, r.l);
   }
   const quant = new Map(recs.map(r => [r.m, r.q]));
+  const all = [...variant.keys()].sort();
+  const groups = new Map();
+  for (const t of all) { fxPush(groups, `${lang.get(t)} (${variant.get(t)})`, t); fxPush(groups, `all ${variant.get(t)}`, t); }
+  const baseT = baseLabel ? new Set(variant.has(baseLabel) ? [baseLabel] : groups.get(baseLabel) || []) : null;
   const contrast = tasks => {
+    if (baseT) tasks = new Set([...tasks].filter(t => !baseT.has(t)));
     const vs = new Set([...tasks].map(t => variant.get(t)));
     const units = [];
     for (const [m, byT] of byModel) {
       const B = [...tasks].filter(t => byT.has(t)).map(t => byT.get(t));
-      const A = [...byT].filter(([t]) => !tasks.has(t) && vs.has(variant.get(t))).map(([, xs]) => xs);
+      const A = [...byT].filter(([t]) => baseT ? baseT.has(t) : !tasks.has(t) && vs.has(variant.get(t))).map(([, xs]) => xs);
       if (B.length && A.length) units.push({ a: fxMeanVec(A), b: fxMeanVec(B), model: m, quant: quant.get(m), n: B.reduce((x, xs) => x + xs.length, 0) });
     }
     return units;
   };
   const out = [];
-  const all = [...variant.keys()].sort();
+  out.options = all.concat([...groups].filter(([, ts]) => ts.length >= 2).map(([l]) => l));
   for (const t of all) {
     const units = contrast(new Set([t])), stats = fxStats(units, 1);
     if (stats.length) out.push({ label: t, members: [t], units: units.length, group: false, stats, perModel: units });
   }
-  const groups = new Map();
-  for (const t of all) { fxPush(groups, `${lang.get(t)} (${variant.get(t)})`, t); fxPush(groups, `all ${variant.get(t)}`, t); }
   for (const [label, ts] of groups) {
     if (ts.length < 2) continue;
     const units = contrast(new Set(ts)), stats = fxStats(units, 1);
@@ -3181,7 +3214,7 @@ function fxCompute() {
   const latest = new Set(latestPerKey(inWindow, r => `${r.m}|${r.t}|${r.s}`).values());
   const recs = inWindow.filter(r => latest.has(r));
   fxRecs = recs;
-  fxData = { settings: fxSettings(recs), standouts: { models: fxModelStandouts(recs), tests: fxTestStandouts(recs) } };
+  fxData = { settings: fxSettings(recs), standouts: { models: fxModelStandouts(recs, soBase.models), tests: fxTestStandouts(recs, soBase.tests) } };
 }
 
 // the table's controls and expanded rows survive reloads (per browser; best effort)
@@ -3227,7 +3260,7 @@ const fmtVal = (s, v) => s.pct ? `${Math.round(v * 100)}%` : s.kind === 'rate' ?
   : v >= 1e4 ? (v / 1e3).toFixed(0) + 'k' : v >= 1e3 ? (v / 1e3).toFixed(1) + 'k' : v >= 10 ? Math.round(v) : v.toFixed(1);
 // columns grouped: outcome, cost, thinking, then glitches (unknown keys go last)
 const COL_ORDER = ['capability', 'net_tokens', 'pass', 'tests_frac', 'timeout', 'done_wrong', 'stability', 'glitch_end', 'out_tokens', 'duration', 'steps', 'requests', 'tok_req', 'sd_any', 'sd_steps', 'sd_requests', 'sd_out_tokens', 'sd_duration', 'sd_tests_frac', 'sd_reason_req',
-  'reason_req', 'answer_req', 'think_cut', 'think_code', 'copied', 'spill', 'looped', 'loop_stuck', 'malformed', 'syntax', 'own_tests', 'tool_err', 'edit_err', 'knows_src', 'recalled', 'fetched'];
+  'reason_req', 'answer_req', 'think_cut', 'think_code', 'copied', 'spill', 'looped', 'loop_stuck', 'malformed', 'syntax', 'own_tests', 'bash_streak', 'tool_err', 'edit_err', 'knows_src', 'recalled', 'fetched'];
 const colIdx = k => { const i = COL_ORDER.indexOf(k); return i < 0 ? 99 : i; };
 const dirNote = s => s.better === 'up' ? '↑ better' : s.better === 'down' ? '↓ better' : 'neutral';
 const BLANK = s => s.kind === 'rate' ? 0.12 * span(s) : 0.05;  // a pooled change this small leaves the cell empty
@@ -3247,7 +3280,7 @@ const FX_CATS = [
   { id: 'cost', label: 'Cost & timing', keys: ['net_tokens', 'out_tokens', 'duration', 'steps', 'requests', 'tok_req'] },
   { id: 'thinking', label: 'Thinking', keys: ['reason_req', 'answer_req', 'tok_req', 'think_cut', 'think_code', 'copied'] },
   { id: 'recall', label: 'Recall', keys: ['knows_src', 'recalled', 'fetched'] },
-  { id: 'behavior', label: 'Behavior', keys: ['own_tests'] },
+  { id: 'behavior', label: 'Behavior', keys: ['own_tests', 'bash_streak'] },
   { id: 'other', label: 'Other', keys: [] },
 ];
 const FX_OVERVIEW = ['capability', 'stability', 'spread'];
@@ -3297,15 +3330,15 @@ const COL_DESC = {
   tests_frac: 'Average fraction of the task\'s individual tests passed; partial credit. Tests that never ran count as failed. Harbor only.',
   timeout: 'Share of attempts that ran out of time (wall clock) before finishing. A reason pass is low, not a model flaw by itself.',
   done_wrong: 'Share of attempts where the model declared itself done while tests were still failing: confidently wrong rather than unfinished. Harbor only.',
-  stability: 'Summary of the Stability group. Average of 1 minus a severity-weighted glitch score (stuck loops, thinking leaked into answers, malformed calls, ...). Higher = cleaner output. Aider cannot see loops / spills, so compare within a runner.',
-  looped: 'Share of attempts that repeated itself in a loop (even if it recovered). Harbor only.',
-  loop_stuck: 'Share of attempts where a loop never recovered. Harbor only.',
+  stability: 'Summary of the Stability group. Average of 1 minus a severity-weighted glitch score (each repeat of a glitch in one attempt counts again; stuck loops, thinking leaked into answers, malformed calls, ...). Higher = cleaner output. Aider cannot see loops / spills, so compare within a runner.',
+  looped: 'Loops (repeating itself, even if it recovered) per thinking block, pooled over all attempts so repeat loops count. Harbor only.',
+  loop_stuck: 'Share of loops that never recovered, pooled over loops. Harbor only.',
   spill: 'Share of attempts where thinking tags leaked into the answer or tool input. Harbor only.',
   malformed: 'Share of attempts with a malformed tool call or edit block.',
   syntax: 'Share of attempts with syntax / lint / indentation errors. Aider only.',
-  edit_err: 'Share of attempts with at least one failed edit (often a stale old_string); feeds stability. Harbor only.',
+  edit_err: 'Share of edit calls that failed (often a stale old_string), pooled over edits so repeat failures count; feeds stability. Harbor only.',
   glitch_end: 'Share of attempts that ended in a glitch: broken output, or a last message that was raw tool markup. Feeds stability at full weight.',
-  tool_err: 'Share of tool calls that returned an error. Harbor only.',
+  tool_err: 'Share of tool calls that returned an error, pooled over calls. Harbor only.',
   out_tokens: 'Output tokens per attempt (reasoning included): the speed-independent measure of how much the model wrote.',
   duration: 'Wall-clock seconds per attempt. Mostly output tokens scaled by server speed, so it matters most when comparing models of different speeds.',
   steps: 'Tries to pass (aider) or run-tests calls (Harbor), compared per task, so a model run on a different mix of tests is not skewed. Fewer = more capable, also counted in the capability score.',
@@ -3314,10 +3347,11 @@ const COL_DESC = {
   tok_req: 'Output tokens per turn: how big each turn is. With turns, it tells few-big-turns from many-small-turns. Harbor only.',
   reason_req: 'Reasoning tokens per turn (the thinking part of a model request). Harbor only.',
   answer_req: 'Answer tokens per turn (the visible reply / tool call, not thinking). Harbor only.',
-  think_cut: 'Share of thinking blocks cut off by the thinking budget (attempts with a cut-off also count against stability).',
-  think_code: 'Share of thinking text that is code. Harbor only.',
-  copied: 'Share of big file writes copied from the model\'s own thinking. Harbor only.',
+  think_cut: 'Share of thinking blocks cut off by the thinking budget, pooled over blocks (attempts with a cut-off also count against stability).',
+  think_code: 'Share of thinking text that is code, pooled over characters. Harbor only.',
+  copied: 'Share of big file writes copied from the model\'s own thinking, pooled over writes. Harbor only.',
   own_tests: 'Share of attempts where the model wrote its own tests. Harbor only.',
+  bash_streak: 'Of the runs of consecutive shell calls that exited non-zero, the share that reach 3 or more. Pooled over runs, so an attempt with several runs counts several times. A behavior to watch, not good or bad. Harbor only.',
   knows_src: 'Share of attempts where the model named the exercise source itself (Exercism or its specs). Lower = the result says more about ability.',
   recalled: 'Share of attempts that recalled the upstream solution or tests from memory. Lower = the result says more about ability.',
   fetched: 'Share of attempts that fetched upstream files or outside URLs. Harbor only.',
@@ -3377,7 +3411,7 @@ const SHORT = { pass: 'pass<br>rate', timeout: 'time-<br>outs', out_tokens: 'out
   tests_frac: 'tests<br>passed', malformed: 'mal-<br>formed', tool_err: 'tool<br>errors', edit_err: 'edit<br>errors',
   done_wrong: 'done<br>wrong', syntax: 'syntax<br>errors', knows_src: 'knows<br>source', recalled: 'recalled<br>solution',
   fetched: 'fetched<br>source', think_code: 'code in<br>thinking', copied: 'copied<br>from think',
-  spill: 'think<br>spill', looped: 'looped', loop_stuck: 'stuck<br>loop', stability: 'stab-<br>ility', own_tests: 'own<br>tests',
+  spill: 'think<br>spill', looped: 'looped', loop_stuck: 'stuck<br>loop', stability: 'stab-<br>ility', own_tests: 'own<br>tests', bash_streak: 'bash<br>streaks',
   capability: 'capab-<br>ility', tok_req: 'tokens<br>/ turn', net_tokens: 'net<br>tokens', sd_any: 'overall<br>spread', glitch_end: 'glitch<br>ends', sd_steps: 'tries<br>spread', sd_requests: 'turn<br>spread', sd_out_tokens: 'token<br>spread', sd_duration: 'duration<br>spread', sd_tests_frac: 'tests<br>spread', sd_reason_req: 'reason<br>spread' };
 
 function renderSettingsEffects() {
@@ -3387,6 +3421,9 @@ function renderSettingsEffects() {
     fxRestored = true;
     // one option per setting: picking one shows every change that includes it
     [...new Set(raw.flatMap(c => c.axes))].sort().forEach(k => axisSel.add(new Option(k, k)));
+    // and one per combination of settings that changed together: picking one shows exactly those changes
+    [...new Set(raw.filter(c => c.axes.length > 1).map(c => c.axes.join(',')))].sort()
+      .forEach(k => axisSel.add(new Option(k.split(',').join(' + '), k)));
     fxRestore();
     fxCatState = makeCats(document.getElementById('fxCats'), 'evalViz.fxCats', renderSettingsEffects);
     ['fxSingle', 'fxWeak', 'fxColorAll', 'fxRing', 'fxAxis', 'fxLevel'].forEach(id => document.getElementById(id).addEventListener('change', renderSettingsEffects));
@@ -3410,7 +3447,7 @@ function renderSettingsEffects() {
   }) }));
   const single = document.getElementById('fxSingle').checked, weak = document.getElementById('fxWeak').checked;
   const axis = axisSel.value;
-  const shown = all.filter(c => (!single || c.axes.length === 1) && (!axis || c.axes.includes(axis)));
+  const shown = all.filter(c => (!single || c.axes.length === 1) && (!axis || (axis.includes(',') ? c.axes.join(',') === axis : c.axes.includes(axis))));
   const statKeys = [], statInfo = {};
   all.forEach(c => c.stats.forEach(s => { if (!(s.key in statInfo)) { statKeys.push(s.key); statInfo[s.key] = s; } }));
   statKeys.sort((a, b) => colIdx(a) - colIdx(b));
@@ -3541,7 +3578,7 @@ function renderSettingsEffects() {
     const tip = [`${c.tasks} shared tasks, ${c.attempts_a} vs ${c.attempts_b} attempts`, `runners: ${c.runners.join(', ')}`,
       fixed ? `same on both sides: ${fixed}` : '',
       c.also_differs?.length ? `also differs between the sides: ${c.also_differs.join(', ')}` : ''].filter(Boolean).join('\n');
-    const dot = `<span class="quant-dot" style="background:var(${QUANT_VAR[c.quant] || '--quant-other'})"></span>`;
+    const dot = `<span class="quant-dot" style="background:${quantColor(c.quant)}"></span>`;
       return `<tr class="fx-sub"><td title="${esc(c.model + '\n' + tip)}">${dot}${fxName(c.model, false)}<div class="fx-meta">${c.tasks} tasks</div></td>` +
       colKeys.map(sk => { const s = c.stats.find(x => x.key === sk); return s ? mini(s, plainCols.has(sk)) : '<td class="fx-mini fx-meta">–</td>'; }).join('') + '</tr>';
   };
@@ -3568,7 +3605,7 @@ function renderSettingsEffects() {
     }).join('');
     const tasks = mcs.reduce((a, c) => a + c.tasks, 0);
     const tip = mcs.map(c => `${variantLabel(c, axisName)}: ${c.tasks} tasks, ${c.runners.join(', ')}`).join('\n');
-    const dot = `<span class="quant-dot" style="background:var(${QUANT_VAR[mcs[0].quant] || '--quant-other'})"></span>`;
+    const dot = `<span class="quant-dot" style="background:${quantColor(mcs[0].quant)}"></span>`;
     return `<tr class="fx-sub"><td title="${esc(model + '\n' + tip)}">${dot}${fxName(model, false)}<div class="fx-meta">${tasks} tasks · ${esc(mcs.map(c => variantLabel(c, axisName)).sort((a, b) => (a === 'alone' ? -1 : b === 'alone' ? 1 : a.localeCompare(b))).join(' · '))}</div></td>${cells}</tr>`;
   };
 
@@ -3722,11 +3759,18 @@ function renderStandouts() {
         document.getElementById('soColorAll').checked = !!st.colorAll;
         document.getElementById('soRing').checked = !!st.ring;
         if (st.level) document.getElementById('soLevel').value = st.level;
+        Object.assign(soBase, st.base || {});
         (st.open || []).forEach(k => soOpen.add(k));
       }
     } catch (e) { /* storage unavailable */ }
     soCatState = makeCats(document.getElementById('soCats'), 'evalViz.soCats', renderStandouts);
     ids.forEach(id => document.getElementById(id).addEventListener('change', renderStandouts));
+    document.getElementById('soBase').addEventListener('change', e => {
+      soBase[(kindEl()?.value) || 'models'] = e.target.value;
+      fxData.standouts = { models: fxModelStandouts(fxRecs, soBase.models), tests: fxTestStandouts(fxRecs, soBase.tests) };
+      renderStandouts();
+    });
+    if (soBase.models || soBase.tests) fxData.standouts = { models: fxModelStandouts(fxRecs, soBase.models), tests: fxTestStandouts(fxRecs, soBase.tests) };
     document.querySelectorAll('input[name="soKind"]').forEach(r => r.addEventListener('change', renderStandouts));
     document.getElementById('soTable').addEventListener('click', e => {
       const th = e.target.closest('th[data-sort]');
@@ -3739,14 +3783,24 @@ function renderStandouts() {
     });
   }
   const kind = kindEl()?.value || 'models';
+  {
+    // the baseline dropdown lists every model / test (and group); a stale choice falls back to the rest
+    const opts = fxData.standouts[kind]?.options || [];
+    if (soBase[kind] && !opts.includes(soBase[kind])) soBase[kind] = '';
+    document.getElementById('soBase').innerHTML = `<option value="">the rest</option>` +
+      opts.map(o => `<option value="${esc(o)}"${o === soBase[kind] ? ' selected' : ''}>${esc(o)}</option>`).join('');
+  }
+  const baseLbl = soBase[kind];
+  const restWord = baseLbl ? 'baseline' : 'rest';
+  const usualWord = baseLbl ? 'the baseline' : 'its usual';
   const which = document.getElementById('soWhich').value, showAll = document.getElementById('soAll').checked;
   const level = document.getElementById('soLevel').value || '95';
   const abs = document.getElementById('soAbs').checked;
   // the cell's text: its difference from the rest, or its own value with the difference in the tooltip
   const shown = s => abs ? fmtVal(s, s.b) : fmtDelta(s);
-  const diffTip = s => abs ? `\n${fmtDelta(s)} vs ${s.point ? 'its usual' : 'the rest'}` : '';
+  const diffTip = s => abs ? `\n${fmtDelta(s)} vs ${s.point ? usualWord : 'the ' + restWord}` : '';
   try {
-    localStorage.setItem(SO_STORAGE_KEY, JSON.stringify({ kind, which, all: showAll, abs, colorAll: document.getElementById('soColorAll').checked, ring: document.getElementById('soRing').checked, level, open: [...soOpen] }));
+    localStorage.setItem(SO_STORAGE_KEY, JSON.stringify({ kind, which, all: showAll, abs, colorAll: document.getElementById('soColorAll').checked, ring: document.getElementById('soRing').checked, level, base: { ...soBase }, open: [...soOpen] }));
   } catch (e) { /* storage unavailable */ }
   const Z = { 50: 0.674, 60: 0.842, 70: 1.036, 80: 1.282, 90: 1.645, 95: 1.960, 99: 2.576 }[level];
   // each stat at the chosen level: interval, sig, and how clearly past the bar (0..1)
@@ -3776,13 +3830,13 @@ function renderStandouts() {
   const cell = s => {
     if (!s) return '<td class="fx-meta">–</td>';
     if (Math.abs(s.delta) < BLANK(s)) {
-      const btip = esc(`${fmtVal(s, s.a)} (rest) → ${fmtVal(s, s.b)}: too small to show, ${s.n} ${unit}`);
+      const btip = esc(`${fmtVal(s, s.a)} (${restWord}) → ${fmtVal(s, s.b)}: too small to show, ${s.n} ${unit}`);
       // absolute values + "color all": even a negligible difference still gets its faint tint
       const o = nsOpts('so');
       if (abs && o.all) return `<td title="${btip}"><span class="fx-chip" style="background:color-mix(in srgb, ${toneCol(tone(s))} 8%, transparent)">${fmtVal(s, s.b)}</span></td>`;
       return `<td${abs ? ' class="fx-meta"' : ''} title="${btip}">${abs ? fmtVal(s, s.b) : ''}</td>`;
     }
-    const tip = esc(`${fmtVal(s, s.a)} (rest) → ${fmtVal(s, s.b)}, ${level}% interval ${fmtDelta({ ...s, delta: s.lo })} … ${fmtDelta({ ...s, delta: s.hi })}, ${s.n} ${unit}` +
+    const tip = esc(`${fmtVal(s, s.a)} (${restWord}) → ${fmtVal(s, s.b)}, ${level}% interval ${fmtDelta({ ...s, delta: s.lo })} … ${fmtDelta({ ...s, delta: s.hi })}, ${s.n} ${unit}` +
       (s.sig ? '' : `\nnot significant: the interval includes 0${Math.abs(s.delta) < BLANK(s) ? ' (or the change is too small)' : ''}`) + diffTip(s));
     if (!s.sig) { const ch = nsChip(shown(s), s, s, nsOpts('so'), [s.lo, s.hi]); return ch ? `<td title="${tip}">${ch}</td>` : `<td class="fx-meta" title="${tip}">${shown(s)}</td>`; }
     const pct = Math.round(22 + 38 * Math.min(1, sizeOf(s)) * s.conf);  // floor: see the settings table
@@ -3811,11 +3865,11 @@ function renderStandouts() {
     if (!s) return '<td class="fx-mini fx-meta">–</td>';
     const f = tf(s), h = half[s.key], p = x => 50 + 50 * Math.max(-1, Math.min(1, f(x) / h));
     const col = s.sig ? toneCol(tone(s)) : 'var(--text-muted)';
-    return `<td class="fx-mini" title="${esc(`${fmtVal(s, s.a)} (${s.point ? 'its usual' : 'rest'}) → ${fmtVal(s, s.b)}` + (s.point ? '' : `, ${s.n} ${unit}`) + diffTip(s))}"><div class="fx-bar"><div class="zero"></div>` +
+    return `<td class="fx-mini" title="${esc(`${fmtVal(s, s.a)} (${s.point ? usualWord : restWord}) → ${fmtVal(s, s.b)}` + (s.point ? '' : `, ${s.n} ${unit}`) + diffTip(s))}"><div class="fx-bar"><div class="zero"></div>` +
       `<div class="ci" style="left:${p(s.lo)}%;width:${Math.max(1, p(s.hi) - p(s.lo))}%"></div><div class="pt" style="left:${p(s.delta)}%;background:${col}"></div></div>` +
       `<div class="${s.sig ? '' : 'fx-meta'}">${shown(s)}</div></td>`;
   };
-  const dot = it => it.quant ? `<span class="quant-dot" style="background:var(${QUANT_VAR[it.quant] || '--quant-other'})"></span>` : '';
+  const dot = it => it.quant ? `<span class="quant-dot" style="background:${quantColor(it.quant)}"></span>` : '';
   const tbl = document.getElementById('soTable');
   tbl.innerHTML = rows.length ? `<tr>${sortTh('_name', soEff, kind === 'models' ? 'model — groups expand' : 'test — click for each model')}${cols.map(k => sortTh(k, soEff, SHORT[k] || esc(statInfo[k].label), `title="${esc(statInfo[k].label + '\n' + (COL_DESC[k] ? COL_DESC[k] + '\n' : '') + dirNote(statInfo[k]) + '\n' + fxThreshold(statInfo[k], level) + `\n${hits[k]} of ${rows.length} rows shown have it colored`)}"${hits[k] ? '' : ' class="fx-quiet"'}`)).join('')}</tr>` +
     rows.map(({ it }) => {
@@ -3830,6 +3884,20 @@ function renderStandouts() {
     }).join('') : '<tr><td class="fx-meta">Nothing stands out.</td></tr>';
 }
 
+// Line colors for the reasoning chart: one distinct hue per group (golden-angle steps through
+// all groups in the data, so a group keeps its color when filters hide others). The quant color
+// goes on the dots instead.
+let rsHue = null;
+function rsLineColor(r) {
+  if (!rsHue) {
+    rsHue = new Map();
+    // keyed by model only, so a model's efforts / caps share one color (the dash tells them apart)
+    const keys = [...new Set((data.reasoning || []).map(t => t.m))].sort();
+    keys.forEach((k, i) => rsHue.set(k, (i * 137.508) % 360));
+  }
+  return `hsl(${rsHue.get(r.model) ?? 0} 70% 48%)`;
+}
+const rsEffortOff = new Set();  // efforts unchecked in the chart's filter
 function renderReasoningSpread() {
   const el = document.getElementById('reasonChart');
   const groups = new Map();
@@ -3841,7 +3909,11 @@ function renderReasoningSpread() {
     g.r.push(...t.r); g.xs.push(...t.x); g.cuts += t.x.length; g.trials++;
   }
   const q = (a, p) => a[Math.min(a.length - 1, Math.floor(p * (a.length - 1) + 0.5))];
-  const rows = [...groups.values()].filter(g => g.r.length >= 5).map(g => {
+  const effOrder = e => EFFORT_ORDER[e] ?? 9;
+  const allEfforts = [...new Set([...groups.values()].filter(g => g.r.length >= 5).map(g => g.effort))].sort((a, b) => effOrder(a) - effOrder(b));
+  const effBar = `<div id="rsEffBar" style="display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12px;margin-bottom:6px;align-items:center"><span style="color:var(--text-secondary)">Effort:</span>${allEfforts.map(e =>
+    `<label class="rs-eff" data-e="${esc(e)}" style="display:flex;align-items:center;gap:4px;cursor:pointer;padding:1px 4px"><input type="checkbox" data-e="${esc(e)}"${rsEffortOff.has(e) ? '' : ' checked'}>${esc(e)}</label>`).join('')}</div>`;
+  const rows = [...groups.values()].filter(g => g.r.length >= 5 && !rsEffortOff.has(g.effort)).map(g => {
     const a = g.r.slice().sort((x, y) => x - y);
     return { ...g, all: g.r, n: a.length, p10: q(a, 0.1), p25: q(a, 0.25), med: q(a, 0.5), p75: q(a, 0.75), p90: q(a, 0.9),
              max: a[a.length - 1], cutRate: g.cuts / a.length,
@@ -3857,53 +3929,131 @@ function renderReasoningSpread() {
     : mode === 'median' ? b.med - a.med : mode === 'p90' ? b.p90 - a.p90 : (b.cutRate - a.cutRate) || (b.p90 - a.p90));
   const hit = rows.filter(r => r.cuts > 0).length;
   document.getElementById('reasonCount').textContent = `${rows.length} groups, ${hit} hit the cap`;
-  if (!rows.length) { el.innerHTML = '<p style="font-size:12px;color:var(--text-muted);">No Harbor requests in this view.</p>'; return; }
-  const labelW = Math.min(360, Math.max(...rows.map(r => r.name.length)) * 6.2 + 24), rowH = 46, barH = 36;
-  const W = 900, M = { left: labelW, right: 110, top: 22, bottom: 8 }, H = M.top + M.bottom + rows.length * rowH;
-  // bins are a divisor of 1k wide, so bin edges (and the cap line) fall on 1k multiples
+  const wireEff = () => el.querySelectorAll('#rsEffBar input').forEach(cb => cb.addEventListener('change', () => {
+    if (cb.checked) rsEffortOff.delete(cb.dataset.e); else rsEffortOff.add(cb.dataset.e);
+    renderReasoningSpread();
+  }));
+  if (!rows.length) { el.innerHTML = effBar + '<p style="font-size:12px;color:var(--text-muted);">No Harbor requests in this view.</p>'; wireEff(); return; }
+  // one line per group: x = reasoning tokens, y = share of that group's requests per 250 tokens
+  // of bin width (a density, so bins of different widths compare), log scale
+  const W = 900, H = 420, M = { left: 56, right: 16, top: 14, bottom: 34 };
   const want = Math.max(...rows.map(r => Math.max(r.p90, r.cap || 0, r.max * 0.98))) * 1.03 || 1;
-  const bw = [250, 500, 1000, 2000, 5000].find(b => want / b <= 40) || 5000;
-  const maxX = Math.ceil(want / bw) * bw;
+  const binMode = document.getElementById('reasonBin').value;
+  // Bin edges. Fixed modes: every `bw` tokens. 'auto' widens through the tail (where counts
+  // are few and the line gets noisy). Either way every cap, and the 250 after it (where
+  // cut requests land, a few tokens past the cap) is an edge, so the cap line never splits a bin.
+  const caps = [...new Set(rows.map(r => r.cap).filter(Boolean))];
+  // 'auto:<max>': width 250 up to 1k, 500 to 2k, 1k to 4k, 2k to 8k, 4k beyond, never over <max>
+  const widthAt = (v, mx) => Math.min(mx, v < 1000 ? 250 : v < 2000 ? 500 : v < 4000 ? 1000 : v < 8000 ? 2000 : 4000);
+  const base = [];
+  if (binMode.startsWith('auto')) {
+    const mx = +binMode.split(':')[1];
+    for (let v = 0; v <= want + 4000; v += widthAt(v, mx)) base.push(v);
+  } else for (let v = 0; v <= want + 250; v += +binMode) base.push(v);
+  const top = Math.ceil(want / 250) * 250;
+  const edges = [...new Set([...base, ...caps, ...caps.map(c => c + 250)])].filter(v => v < top).sort((p, q) => p - q).concat(top);
+  const maxX = top, NB = edges.length - 1;
   const x = v => M.left + v / maxX * (W - M.left - M.right);
-  const EFF = { low: 'var(--seq-blue)', medium: 'var(--neutral-down)', high: 'var(--seq-purple)', xhigh: 'var(--seq-purple)' };
-  const NB = Math.round(maxX / bw);
+  const EFF_DASH = { low: '', medium: '6 3', high: '2 3', xhigh: '2 3', none: '8 3 2 3' };
+  const binOf = v => { let k = NB - 1; while (k > 0 && v < edges[k]) k--; return k; };
+  rows.forEach(r => {
+    const ok = new Array(NB).fill(0), cut = new Array(NB).fill(0);
+    r.all.forEach(v => ok[binOf(v)]++);
+    // cut requests land a few tokens past the cap (the closing marker), so just after the line
+    r.xs.forEach(v => { ok[binOf(v)]--; cut[binOf(v)]++; });
+    r.bins = ok.map((c, k) => {
+      const lo = edges[k], hi = edges[k + 1], n = c + cut[k];
+      return { k, lo, hi, n, cut: cut[k], f: n / r.n, d: n / r.n * 250 / (hi - lo) };
+    });
+  });
+  const dens = rows.flatMap(r => r.bins.filter(b => b.n).map(b => b.d));
+  const dMin = Math.log10(Math.min(...dens)), dLo = Math.ceil(dMin - 1e-9), dHi = Math.ceil(Math.log10(Math.max(...dens)));
+  const flo = dMin - 0.5;  // empty bins sit on a floor half a decade below the smallest real value, labeled 0
+  // (decade ticks start at the first one inside the data, so no tick leaves a gap above the floor)
+  const innerH = H - M.top - M.bottom;
+  const y = d => M.top + (1 - (Math.log10(d) - flo) / (dHi - flo)) * innerH;
+  const yOf = b => b.n ? y(b.d) : y(10 ** flo);
   let svg = '';
+  for (let e = dLo; e <= dHi; e++) {
+    const yy = y(10 ** e);
+    svg += `<line x1="${M.left}" x2="${W - M.right}" y1="${yy}" y2="${yy}" stroke="var(--border)"/><text x="${M.left - 6}" y="${yy + 4}" font-size="10" text-anchor="end" fill="var(--text-muted)">${+(10 ** (e + 2)).toPrecision(1)}%</text>`;
+  }
+  svg += `<line x1="${M.left}" x2="${W - M.right}" y1="${y(10 ** flo)}" y2="${y(10 ** flo)}" stroke="var(--text-muted)" stroke-dasharray="1 3"/><text x="${M.left - 6}" y="${y(10 ** flo) + 4}" font-size="10" text-anchor="end" fill="var(--text-muted)">0</text>`;
+  svg += `<text transform="translate(11 ${M.top + innerH / 2}) rotate(-90)" font-size="10" text-anchor="middle" fill="var(--text-muted)">% of requests per 250 tokens</text>`;
   const step = [500, 1000, 2000, 4000, 5000, 10000].find(s => maxX / s <= 10) || 20000;
   for (let v = 0; v <= maxX; v += step)
-    svg += `<line x1="${x(v)}" x2="${x(v)}" y1="${M.top - 4}" y2="${H - M.bottom}" stroke="var(--border)"/><text x="${x(v)}" y="${M.top - 8}" font-size="10" text-anchor="middle" fill="var(--text-muted)">${v >= 1000 ? v / 1000 + 'k' : v}</text>`;
+    svg += `<line x1="${x(v)}" x2="${x(v)}" y1="${M.top}" y2="${H - M.bottom}" stroke="var(--border)"/><text x="${x(v)}" y="${H - M.bottom + 14}" font-size="10" text-anchor="middle" fill="var(--text-muted)">${v >= 1000 ? v / 1000 + 'k' : v}</text>`;
+  svg += `<text x="${(M.left + W - M.right) / 2}" y="${H - 4}" font-size="10" text-anchor="middle" fill="var(--text-muted)">reasoning tokens in one request</text>`;
+  caps.forEach(c => svg += `<line x1="${x(c)}" x2="${x(c)}" y1="${M.top}" y2="${H - M.bottom}" stroke="var(--status-critical)" stroke-width="1.2" stroke-dasharray="3 2"/><text x="${x(c) - 3}" y="${M.top + 9}" font-size="10" text-anchor="end" fill="var(--status-critical)">cap ${c / 1000}k</text>`);
   rows.forEach((r, i) => {
-    const y = M.top + i * rowH, base = y + rowH - 5, col = EFF[r.effort] || 'var(--text-muted)';
-    // histogram: requests per bin, the cut-off ones (stacked on top) in red
-    const ok = new Array(NB).fill(0), cut = new Array(NB).fill(0);
-    const bin = v => Math.min(NB - 1, Math.floor(v / bw));
-    r.all.forEach(v => ok[bin(v)]++);
-    const redOp = 0.3 + 0.7 * Math.min(1, r.cutRate / 0.1);  // fainter red = a smaller share of requests cut
-    // cut requests land a few tokens past the cap (the closing marker), so in the bin just after the line
-    r.xs.forEach(v => { ok[bin(v)]--; cut[bin(v)]++; });
-    const top = Math.max(...ok.map((c, k) => c + cut[k]), 1);
-    svg += `<line x1="${M.left}" x2="${W - M.right}" y1="${base}" y2="${base}" stroke="var(--border)"/>`;
-    svg += `<circle cx="${M.left - 12}" cy="${y + rowH / 2 - 5}" r="4" fill="${quantColorVar(r.model)}"><title>${esc(quantOf(r.model))}</title></circle><text x="${M.left - 22}" y="${y + rowH / 2 - 2}" font-size="11" text-anchor="end" fill="var(--text-primary)">${esc(r.name)}</text><text x="${M.left - 22}" y="${y + rowH / 2 + 11}" font-size="10" text-anchor="end" fill="var(--text-muted)">${esc(r.sub)}</text>`;
-    for (let k = 0; k < NB; k++) {
-      // log-ish height (log1p) so a lone request in a bin still shows next to a bin of hundreds;
-      // the bin's total height is split between ok and cut in proportion to their counts
-      const tot = ok[k] + cut[k], hTot = tot ? Math.log1p(tot) / Math.log1p(top) * barH : 0;
-      const hCut = tot ? hTot * cut[k] / tot : 0, hOk = hTot - hCut, bx = x(k * bw), w = Math.max(1, x(bw) - x(0) - 1);
-      if (hOk > 0) svg += `<rect x="${bx}" y="${base - hOk}" width="${w}" height="${hOk}" fill="${col}" opacity="0.8"/>`;
-      if (hCut > 0) svg += `<rect x="${bx}" y="${base - hOk - hCut}" width="${w}" height="${Math.max(hCut, 2)}" fill="var(--status-critical)" opacity="${redOp}"/>`;
-    }
-    svg += `<line x1="${x(r.med)}" x2="${x(r.med)}" y1="${base - barH - 2}" y2="${base + 3}" stroke="var(--text-primary)" stroke-width="1.5"/>`;
-    if (r.cap) svg += `<line x1="${x(r.cap)}" x2="${x(r.cap)}" y1="${y + 1}" y2="${y + rowH - 1}" stroke="var(--status-critical)" stroke-width="1.2" stroke-dasharray="3 2"/>`;
-    svg += `<text x="${W - M.right + 8}" y="${y + rowH / 2 + 4}" font-size="11" fill="${r.cuts ? 'var(--status-critical)' : 'var(--text-muted)'}">${r.cuts ? (r.cutRate * 100).toFixed(r.cutRate < 0.1 ? 1 : 0) + '% cut \u00b7 ' : ''}n=${r.n}</text>`;
-    svg += `<rect class="rs-hit" data-i="${i}" x="0" y="${y}" width="${W}" height="${rowH}" fill="transparent"/>`;
+    const col = quantColorVar(r.model), lcol = rsLineColor(r), dash = EFF_DASH[r.effort] ?? '';
+    const cx = b => x((b.lo + b.hi) / 2);
+    let g = `<g class="rs-line" data-i="${i}">`;
+    g += `<polyline fill="none" stroke="${lcol}" stroke-width="1.6"${dash ? ` stroke-dasharray="${dash}"` : ''} points="${r.bins.map(b => `${cx(b)},${yOf(b)}`).join(' ')}"/>`;
+    r.bins.filter(b => b.n).forEach(b => {
+      g += `<circle cx="${cx(b)}" cy="${y(b.d)}" r="3" fill="${col}" stroke="${lcol}" stroke-width="1"/>`;
+    });
+    svg += g + '</g>';
   });
-  el.innerHTML = `<svg class="scatter-svg" viewBox="0 0 ${W} ${H}" width="100%" style="min-width:640px;max-width:${W}px">${svg}</svg>`;
-  el.querySelectorAll('.rs-hit').forEach(h => {
-    const r = rows[+h.dataset.i];
-    h.addEventListener('mousemove', e => showTip(e, `<b>${esc(r.name)}</b> ${esc(r.sub)}<br>${r.n} requests over ${r.trials} trials<br>median ${r.med} &middot; p25&ndash;p75 ${r.p25}&ndash;${r.p75} &middot; p10&ndash;p90 ${r.p10}&ndash;${r.p90} &middot; max ${r.max}<br>${r.cuts} cut by the cap${r.cap ? ' (' + r.cap + ')' : ''} (${(r.cutRate * 100).toFixed(1)}%)`));
-    h.addEventListener('mouseleave', hideTip);
+  // cut-off markers go in their own layer above every line, so no line can bury them:
+  // a page-colored halo, a thick red ring around the line's color, and the cut count
+  rows.forEach((r, i) => {
+    const lcol = rsLineColor(r), cx = b => x((b.lo + b.hi) / 2);
+    let g = `<g class="rs-line rs-cut" data-i="${i}">`;
+    r.bins.filter(b => b.cut).forEach(b => {
+      const X = cx(b), Y = y(b.d);
+      g += `<circle cx="${X}" cy="${Y}" r="9" fill="var(--page)" opacity="0.85"/>` +
+        `<circle cx="${X}" cy="${Y}" r="6.5" fill="${lcol}" stroke="var(--status-critical)" stroke-width="2.5"/>` +
+        `<text x="${X + 9}" y="${Y - 7}" font-size="10" font-weight="700" fill="var(--status-critical)" stroke="var(--page)" stroke-width="3" paint-order="stroke">✂${b.cut}</text>`;
+    });
+    svg += g + '</g>';
   });
+  svg += '<g id="rsHover"></g>';
+  const legend = rows.map((r, i) => `<div class="rs-leg" data-i="${i}" style="display:flex;align-items:center;gap:8px;font-size:11px;padding:2px 4px;cursor:default">
+      <svg width="30" height="10"><line x1="0" x2="30" y1="5" y2="5" stroke="${rsLineColor(r)}" stroke-width="2"${(EFF_DASH[r.effort] ?? '') ? ` stroke-dasharray="${EFF_DASH[r.effort]}"` : ''}/><circle cx="15" cy="5" r="3.2" fill="${quantColorVar(r.model)}" stroke="${rsLineColor(r)}"/></svg>
+      <span>${esc(r.name)} <span style="color:var(--text-muted)">${esc(r.sub)}</span></span>
+      <span style="margin-left:auto;white-space:nowrap;color:${r.cuts ? 'var(--status-critical)' : 'var(--text-muted)'}">${r.cuts ? (r.cutRate * 100).toFixed(r.cutRate < 0.1 ? 1 : 0) + '% cut \u00b7 ' : ''}n=${r.n}</span></div>`).join('');
+  el.innerHTML = effBar + `<svg class="scatter-svg" viewBox="0 0 ${W} ${H}" width="100%" style="min-width:640px;max-width:${W}px">${svg}</svg>
+    <div style="max-width:${W}px;margin-top:8px;display:grid;grid-template-columns:repeat(auto-fill,minmax(380px,1fr));column-gap:16px">${legend}</div>`;
+  // hover (a line or its legend entry) = emphasise that group, dim the others
+  // (or, hovering an effort checkbox, every group at that effort: focusEff)
+  // level(k): 1 = full, 0.5 = same model as the hovered group (to compare its settings), else the dim value
+  const dim = (level, lineDim, legDim) => {
+    const op = (k, dimV) => { const v = level(k); return v === 1 ? 1 : v === 0.5 ? (dimV === lineDim ? 0.5 : 0.75) : dimV; };
+    el.querySelectorAll('.rs-line').forEach(l => l.style.opacity = op(+l.dataset.i, lineDim));
+    el.querySelectorAll('.rs-leg').forEach(l => l.style.opacity = op(+l.dataset.i, legDim));
+  };
+  const focus = i => dim(k => i == null || k === i ? 1 : rows[k].model === rows[i].model ? 0.5 : 0, 0.1, 0.4);
+  const focusEff = e => dim(k => e == null || rows[k].effort === e ? 1 : 0, 0.1, 0.4);
+  el.querySelectorAll('.rs-eff').forEach(l => {
+    l.addEventListener('mouseenter', () => focusEff(l.dataset.e));
+    l.addEventListener('mouseleave', () => focusEff(null));
+  });
+  wireEff();
+  el.querySelectorAll('.rs-leg').forEach(l => {
+    l.addEventListener('mouseenter', () => focus(+l.dataset.i));
+    l.addEventListener('mouseleave', () => focus(null));
+  });
+  const svgEl = el.querySelector('svg');
+  svgEl.addEventListener('mousemove', e => {
+    // nearest non-empty bin point to the cursor (in viewBox units)
+    const pt = svgEl.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY;
+    const m = pt.matrixTransform(svgEl.getScreenCTM().inverse());
+    let best = null, bd = 18;
+    rows.forEach((r, i) => r.bins.forEach(b => {
+      if (!b.n) return;
+      const d = Math.hypot(x((b.lo + b.hi) / 2) - m.x, y(b.d) - m.y);
+      if (d < bd) { bd = d; best = { r, b, i }; }
+    }));
+    if (!best) { focus(null); hideTip(); return; }
+    focus(best.i);
+    const { r, b } = best;
+    showTip(e, `<b>${esc(r.name)}</b> ${esc(r.sub)}<br>${b.lo}\u2013${b.hi} tokens: ${b.n} of ${r.n} requests (${(b.f * 100).toFixed(1)}%)${b.cut ? `<br><span style="color:var(--status-critical)">${b.cut} cut off by the cap</span>` : ''}<br>median ${r.med} \u00b7 p90 ${r.p90} \u00b7 max ${r.max}`);
+  });
+  svgEl.addEventListener('mouseleave', () => { focus(null); hideTip(); });
 }
 document.getElementById('reasonSortBy').addEventListener('change', renderReasoningSpread);
+document.getElementById('reasonBin').addEventListener('change', renderReasoningSpread);
 
 function applyFilters() {
   saveFiltersToStorage();
@@ -4222,18 +4372,18 @@ runnerListEl.addEventListener('change', e => {
 function renderGroupMasks() {
   // a group with no selected models has nothing to mask, so it's left out (unless masked)
   // counts read in-view/selected/total: in-view = selected and not hidden by any mask
-  const cnt = ms => { const sel = ms.filter(m => activeModels.has(m)).length; return [sel, `${ms.filter(modelInView).length}/${sel}/${ms.length}`]; };
+  const cnt = ms => { const sel = ms.filter(m => activeModels.has(m)).length; const inv = ms.filter(modelInView).length; return [sel, `${inv}/${sel}/${ms.length}`, inv]; };
   const item = g => {
-    const ms = g.models || groupModels(g), [on, counts] = cnt(ms);
+    const ms = g.models || groupModels(g), [on, counts, inv] = cnt(ms);
     if (!on && !maskedGroups.has(g.label)) return '';
-    const dot = g.quant ? `<span class="quant-dot" style="background:var(${QUANT_VAR[g.quant] || '--quant-other'})"></span>` : '';
-    return `<label class="filter-item${on ? '' : ' mask-zero'}" title="${ms.join('\n')}"><input type="checkbox" class="group-cb" value="${g.label}" ${maskedGroups.has(g.label) ? '' : 'checked'}>${dot}<span class="label-text">${g.label}</span> <span class="filter-run-count">(${counts})</span></label>`;
+    const dot = g.quant ? `<span class="quant-dot" style="background:${quantColor(g.quant)}"></span>` : '';
+    return `<label class="filter-item${inv ? '' : ' mask-zero'}" title="${ms.join('\n')}"><input type="checkbox" class="group-cb" value="${g.label}" ${maskedGroups.has(g.label) ? '' : 'checked'}>${dot}<span class="label-text">${g.label}</span> <span class="filter-run-count">(${counts})</span></label>`;
   };
   const TRI = { in: ['✓', 'included: only models in an included group are shown'], out: ['✗', 'excluded: its models are hidden'] };
   const tri = g => {
-    const ms = groupModels(g), [on, counts] = cnt(ms), st = groupState.get(g.label);
+    const ms = groupModels(g), [on, counts, inv] = cnt(ms), st = groupState.get(g.label);
     if (!on && !st) return '';
-    return `<label class="filter-item${on ? '' : ' mask-zero'}" title="${esc((st ? TRI[st][1] + '\n' : 'click: include → exclude → neither\n') + ms.join('\n'))}"><button type="button" class="tri-cb ${st || ''}" data-group="${esc(g.label)}">${st ? TRI[st][0] : ''}</button><span class="label-text">${g.label}</span> <span class="filter-run-count">(${counts})</span></label>`;
+    return `<label class="filter-item${inv ? '' : ' mask-zero'}" title="${esc((st ? TRI[st][1] + '\n' : 'click: include → exclude → neither\n') + ms.join('\n'))}"><button type="button" class="tri-cb ${st || ''}" data-group="${esc(g.label)}">${st ? TRI[st][0] : ''}</button><span class="label-text">${g.label}</span> <span class="filter-run-count">(${counts})</span></label>`;
   };
   const gs = data.fx.model_groups;
   const list = sec => gs.filter(g => sectionOf(g) === sec).map(item).join('') + item({ label: OTHER[sec], models: ungrouped(sec) });
@@ -4242,9 +4392,9 @@ function renderGroupMasks() {
   for (const k of SETTING_MASKS) {
     const vals = settingValues(k);
     document.getElementById(`${k}MaskList`).innerHTML = vals.length < 2 ? '' : vals.map(v => {
-      const ms = data.matrix_models.filter(m => settingVals(m, k).includes(v)), [on, counts] = cnt(ms), id = `${k}:${v}`;
+      const ms = data.matrix_models.filter(m => settingVals(m, k).includes(v)), [on, counts, inv] = cnt(ms), id = `${k}:${v}`;
       if (!on && !maskedGroups.has(id)) return '';
-      return `<label class="filter-item${on ? '' : ' mask-zero'}" title="${esc(ms.join('\n'))}"><input type="checkbox" class="group-cb" value="${esc(id)}" ${maskedGroups.has(id) ? '' : 'checked'}><span class="label-text">${esc(v)}</span> <span class="filter-run-count">(${counts})</span></label>`;
+      return `<label class="filter-item${inv ? '' : ' mask-zero'}" title="${esc(ms.join('\n'))}"><input type="checkbox" class="group-cb" value="${esc(id)}" ${maskedGroups.has(id) ? '' : 'checked'}><span class="label-text">${esc(v)}</span> <span class="filter-run-count">(${counts})</span></label>`;
     }).join('');
   }
   document.getElementById('groupMaskCount').textContent = maskedModels.size ? `(${maskedModels.size} models hidden)` : '';

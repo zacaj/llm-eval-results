@@ -75,6 +75,7 @@ FLAGS = {
     "wrote_tests":    "Wrote its own test / check script (or test block) and used it",
     "never_tested":   "Never ran the tests (no test command, no run-tests call)",
     "ran_past_pass":  "Kept going 5+ requests after its code first passed every test",
+    "phantom_prompt": "Thought it was given only a setup prompt with no task (leaked training template)",
 }
 
 # which runners can raise each flag (the viz suffixes single-runner ones ·A / ·H and
@@ -84,7 +85,9 @@ HARBOR_FLAGS = {"malformed", "edit_errors", "reasoning_cut", "markup_final", "sl
                 "build_failed", "knows_source", "knows_early", "recalled_content", "fetched_source", "internet", "source_in_prompt", "tool_errors", "never_tested",
                 "ran_past_pass", "wrote_tests",
                 "think_spill", "looped", "loop_stuck", "max_tokens",
-                "code_in_think", "copied_from_think"}
+                "code_in_think", "copied_from_think", "phantom_prompt"}
+# flags that are good news (shown green, not as a problem)
+GOOD_FLAGS = {"wrote_tests"}
 FLAG_RUNNERS = {f: sorted(r for r, fs in (("aider", AIDER_FLAGS), ("harbor", HARBOR_FLAGS)) if f in fs) for f in FLAGS}
 
 # How representative an attempt's result is of the model's own ability, 0..1 (not
@@ -117,17 +120,37 @@ GLITCH_WEIGHTS = {
     "lazy":         0.2,   # placeholder comments
     "edit_errors":  0.15,  # often just stale old_string, but frequent in broken quants
     "reasoning_cut": 0.25, # thinking hit its budget and was cut off mid-thought
+    "phantom_prompt": 0.1, # leaked "no task yet" template; usually still makes its tool call
 }
 GLITCH_END_WEIGHT = 1.0   # end reason "glitch": broken output ended the episode
 
 
-def instability(flags, end_reason=None) -> float:
+def instability(flags, end_reason=None, counts=None) -> float:
+    """counts: flag -> occurrences (flag_counts); a flag raised n times is applied n times, so
+    two errors in one attempt read as less stable than one. Missing = once."""
     ok = 1.0
     for f in flags:
-        ok *= 1 - GLITCH_WEIGHTS.get(f, 0)
+        ok *= (1 - GLITCH_WEIGHTS.get(f, 0)) ** max(1, (counts or {}).get(f, 1))
     if end_reason == "glitch":
         ok *= 1 - GLITCH_END_WEIGHT
     return 1 - ok
+
+
+def _n(row, col) -> int:
+    v = (row.get(col) or "").strip()
+    return int(float(v)) if v.replace(".", "", 1).isdigit() else 0
+
+
+# how many times each GLITCH_WEIGHTS flag happened in an attempt (the flags only say 1+)
+def flag_counts(row: dict, runner: str) -> dict:
+    if runner == "harbor":
+        return {"malformed": _n(row, "malformed_calls"), "edit_errors": _n(row, "edit_errors"),
+                "reasoning_cut": max(_n(row, "thinking_cutoffs"), _n(row, "px_budget_cutoffs")),
+                "think_spill": _n(row, "think_spills"), "looped": _n(row, "loop_blocks"),
+                "loop_stuck": _n(row, "loop_unrecovered"), "phantom_prompt": _n(row, "phantom_prompts")}
+    return {"malformed": max(_n(row, "hist_edit_format"), _n(row, "num_malformed_responses")),
+            "lint": _n(row, "hist_lint"), "wrong_file": _n(row, "hist_wrong_file"),
+            "lazy": _n(row, "lazy_comments")}
 
 
 def trust(flags) -> float:
@@ -198,7 +221,8 @@ def classify_harbor(row: dict) -> tuple[str, set[str]]:
     if nz(row.get("markup_final")):
         flags.add("markup_final")
     for col, flag in (("think_spills", "think_spill"), ("loop_blocks", "looped"),
-                      ("loop_unrecovered", "loop_stuck"), ("px_max_tokens", "max_tokens")):
+                      ("loop_unrecovered", "loop_stuck"), ("px_max_tokens", "max_tokens"),
+                      ("phantom_prompts", "phantom_prompt")):
         if nz(row.get(col)):
             flags.add(flag)
     if nz(row.get("own_tests")):
