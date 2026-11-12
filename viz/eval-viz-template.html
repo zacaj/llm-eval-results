@@ -499,6 +499,8 @@
   .scatter-axis-label { font-size: 11px; fill: var(--text-muted); }
   .scatter-point-label { font-size: 10px; fill: var(--text-secondary); }
   .scatter-point { stroke: var(--surface-1); stroke-width: 2; cursor: default; }
+  .sb-spoke { stroke: var(--text-muted); stroke-width: 1; opacity: 0.45; }
+  .sb-dot { cursor: default; stroke: var(--surface-1); stroke-width: 1; }
   /* Tries-discriminative's tied second point: a small hollow diamond in a fixed accent
      color (not the pass/fail-split color the primary dot uses, which wouldn't mean
      anything for a tries-spread metric) plus a thin connector down to its primary dot,
@@ -560,8 +562,12 @@
   }
   .tt.show { opacity: 1; }
   .tt-rule { border: none; border-top: 1px solid var(--border); margin: 5px 0; }
-  .tt:has(table) { max-width: 480px; }
-  .tt table td.tt-cmd { max-width: 140px; overflow: hidden; text-overflow: ellipsis; text-align: left; }
+  /* tables (per-run detail): near full width at a fixed x, so no column is clipped at the sides */
+  .tt.wide { left: 1vw !important; width: 98vw; max-width: 98vw; box-sizing: border-box; }
+  /* the run command takes the leftover width on one ellipsized line (it used to wrap per
+     character when the nowrap columns left it no room, making rows huge); flags may wrap */
+  .tt table td.tt-cmd { text-align: left; width: 100%; max-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .tt table td.tt-flags { text-align: left; white-space: normal; min-width: 200px; max-width: 45vw; }
   .tt table { border-collapse: collapse; font-size: 11px; margin-top: 2px; }
   .tt table th, .tt table td { padding: 1px 6px 1px 0; text-align: right; white-space: nowrap; }
   .tt table th:first-child, .tt table td:first-child { text-align: left; padding-left: 0; }
@@ -778,9 +784,32 @@
   </div>
 
   <div class="card">
+    <h2>Reasoning length per request, by model &amp; effort</h2>
+    <p class="desc">How long each model thinks per request (Harbor runs; aider doesn't log it). Each row is a histogram of reasoning tokens per request for one model at one effort and thinking cap (bar color = effort: <b style="color:var(--seq-blue)">low</b>, <b style="color:var(--neutral-down)">medium</b>, <b style="color:var(--seq-purple)">high/xhigh</b>). The dashed line is the cap, the black tick the median, and the <b style="color:var(--status-critical)">red</b> part of a bar is the requests the cap actually cut off (brighter when a larger share of that row was cut). Bar height is on a log scale (log of count + 1) and each row is scaled to its own tallest bin, so thin tails stay visible but compare shapes, not heights; the label gives the share cut. Follows the filter panel.</p>
+    <div class="detail-controls">
+      <label for="reasonSortBy" style="font-size:12px;color:var(--text-secondary)">Sort rows by</label>
+      <select id="reasonSortBy">
+        <option value="cut">Cap-hit rate</option>
+        <option value="median">Median length</option>
+        <option value="p90">90th percentile</option>
+        <option value="alpha">Alphabetical</option>
+      </select>
+      <span class="detail-count" id="reasonCount"></span>
+    </div>
+    <div id="reasonChart" style="overflow-x:auto"></div>
+  </div>
+
+  <div class="card">
     <h2>Quality vs. token cost</h2>
     <p class="desc">Each point is a model: projected capability score (the same estimate as the chart above) on the selected <span id="shortlistN3">15</span>-task view against average tokens per pass, normalized to exercise difficulty (same 1.0× = typical basis as the chart above). Top-left is the efficiency sweet spot — high score for cheap; bottom-right is the model to cut. Bubble size is passing-run count.</p>
     <div id="qualityChart"></div>
+  </div>
+
+  <div class="card">
+    <h2>Score breakdown: capability, stability, cost &amp; timing</h2>
+    <p class="desc">One column per model (settings pooled, as in the tables above). The <b>large dot</b> is the group's overall score; the <b>small dots</b> around it, joined by thin spokes, are the stats that make it up, each on the same 0&ndash;100% axis where <b>higher is always better</b>. Capability and stability stats are the share <i>without</i> the problem (e.g. 1 &minus; timeout rate), so a low dot is the weak spot behind the overall score. Cost &amp; timing stats have no natural 0&ndash;100%, so each is its percentile among the models shown (100% = cheapest / fastest). Each stat is averaged per task and then over tasks, like the tables above. Follows the filter panel. Aider can't see loops or spills, so compare stability within a runner.</p>
+    <div class="fx-controls" id="sbControls"></div>
+    <div id="sbCharts"></div>
   </div>
 
   <div class="card">
@@ -1280,8 +1309,45 @@ function derivePerfOverall(perfPts) {
   return out;
 }
 
+// One row per run (when / result / tries / time / tokens / requests / seed / flags / run cmd);
+// shared by the grid cells' hover and the dots in the duration/token charts.
+function runTableHtml(runs) {
+  // A table reads better than comma-joined text once a cell has more than a
+  // couple of repeat runs — each run is a row, each stat its own column.
+  const runRows = runs.map(r => `<tr${r.superseded ? ' class="superseded" title="Superseded by a later run on the same seed — not counted"' : ''}>
+    <td>${r.timestamp.slice(5, 16).replace('T', ' ')}</td>
+    <td class="${r.pass ? '' : 'fail-cell'}">${r.pass ? 'pass' : (data.end_reason_labels[r.end_reason] || 'fail').toLowerCase()}</td>
+    <td>${r.tries || '?'}</td>
+    <td>${r.duration}s</td>
+    <td>${r.tokens ? r.tokens.toLocaleString() : '?'}</td>
+    <td>${r.requests ?? '–'}</td>
+    <td>${r.seed || '?'}</td>
+    <td class="tt-flags">${(r.flags || []).map(f => f === 'reasoning_cut' && r.think_blocks ? `reasoning cut ${r.think_cuts}/${r.think_blocks}` : f).join(', ')}${r.trust < 1 ? ` <b title="counts this much toward capability scores (outcomes.py TRUST)">· trust ${Math.round(r.trust * 100)}%</b>` : ''}</td>
+    <td class="tt-cmd" title="${r.run_cmd}">${r.run_cmd}</td>
+  </tr>`).join('');
+  return runs.length ? `<table>
+    <thead><tr><th>When</th><th>Result</th><th>Tries</th><th>Time</th><th title="output tokens">Out tok</th><th title="model requests (Harbor only)">Req</th><th>Seed</th><th>Flags</th><th>Run</th></tr></thead>
+    <tbody>${runRows}</tbody>
+  </table>` : '';
+}
+
+// A chart dot's run, found in data.detail by model / exercise / time / seed
+let detailIndex = null;
+function runForDot(c) {
+  if (!detailIndex) {
+    detailIndex = new Map();
+    data.detail.forEach(d => detailIndex.set(`${d.model}|${d.label}|${d.timestamp}|${d.seed}`, d));
+  }
+  return detailIndex.get(`${c.dataset.model}|${c.dataset.exercise}|${c.dataset.ts}|${c.dataset.seed}`);
+}
+function dotRunTable(c) {
+  const r = runForDot(c);
+  return r ? `<hr class="tt-rule">${runTableHtml([r])}` : '';
+}
+
 function showTip(evt, html) {
   tt.innerHTML = html;
+  tt.classList.toggle('wide', html.includes('<table'));
   tt.classList.add('show');
   moveTip(evt);
 }
@@ -1292,6 +1358,10 @@ function moveTip(evt) {
   const gap = 14, pad = 4, w = tt.offsetWidth, h = tt.offsetHeight;
   const vw = document.documentElement.clientWidth, vh = document.documentElement.clientHeight;
   let x = evt.clientX + gap, y = evt.clientY + gap;
+  if (tt.classList.contains('wide')) {
+    tt.style.top = Math.max(pad, Math.min(y + h > vh - pad ? evt.clientY - gap - h : y, vh - h - pad)) + 'px';
+    return;
+  }
   if (x + w > vw - pad) x = evt.clientX - gap - w;
   if (y + h > vh - pad) y = evt.clientY - gap - h;
   tt.style.left = Math.max(pad, Math.min(x, vw - w - pad)) + 'px';
@@ -1699,7 +1769,7 @@ function renderTokenScatter(container, points, countEl, mode, order) {
     m.pts.forEach((p, j) => {
       const x = cx + offsets[j];
       const y = yScale(p[valueKey]);
-      dotsSvg += `<circle class="token-dot${i % 2 ? ' alt' : ''}" data-model="${m.model}" data-exercise="${p.exercise}" data-tokens="${p.tokens}" data-norm="${p.tokens_norm}" data-tries="${p.tries}" cx="${x}" cy="${y}" r="3.5"/>`;
+      dotsSvg += `<circle class="token-dot${i % 2 ? ' alt' : ''}" data-model="${m.model}" data-exercise="${p.exercise}" data-tokens="${p.tokens}" data-norm="${p.tokens_norm}" data-tries="${p.tries}" data-ts="${p.timestamp}" data-seed="${p.seed}" cx="${x}" cy="${y}" r="3.5"/>`;
     });
     const avgY = yScale(m.avg);
     avgPoints.push([cx, avgY]);
@@ -1745,7 +1815,7 @@ function renderTokenScatter(container, points, countEl, mode, order) {
   container.querySelectorAll('circle.token-dot').forEach(c => {
     c.addEventListener('mouseenter', () => highlightExercise(c.dataset.exercise));
     c.addEventListener('mousemove', e => showTip(e,
-      `<b>${c.dataset.model}</b><br>${c.dataset.exercise}<br>${Number(c.dataset.tokens).toLocaleString()} tokens (${Number(c.dataset.norm).toFixed(2)}× exercise typical) &middot; ${c.dataset.tries} tries`));
+      `<b>${c.dataset.model}</b><br>${c.dataset.exercise}<br>${Number(c.dataset.tokens).toLocaleString()} tokens (${Number(c.dataset.norm).toFixed(2)}× exercise typical) &middot; ${c.dataset.tries} tries` + dotRunTable(c)));
     c.addEventListener('mouseleave', () => { hideTip(); clearHighlight(); });
   });
   container.querySelectorAll('circle.token-avg-dot').forEach(c => {
@@ -1876,7 +1946,7 @@ function renderModelStripPlotFixed(container, points, order, { valueKey, format,
     m.pts.forEach((p, j) => {
       const x = cx + offsets[j];
       const y = yScale(p[valueKey]) + yJitter[j];
-      dotsSvg += `<circle class="token-dot${i % 2 ? ' alt' : ''}" data-model="${m.model}" data-exercise="${p.exercise}" data-value="${p[valueKey]}" data-tries="${p.tries}" cx="${x}" cy="${y}" r="3.5"/>`;
+      dotsSvg += `<circle class="token-dot${i % 2 ? ' alt' : ''}" data-model="${m.model}" data-exercise="${p.exercise}" data-value="${p[valueKey]}" data-tries="${p.tries}" data-ts="${p.timestamp}" data-seed="${p.seed}" cx="${x}" cy="${y}" r="3.5"/>`;
     });
     avgPoints.push([cx, yScale(m.avg)]);
     xLabelSvg += `<circle class="quant-dot-svg" cx="${cx}" cy="${H - M.bottom + 6}" r="4" fill="${quantColorVar(m.model)}"/>`;
@@ -1920,7 +1990,7 @@ function renderModelStripPlotFixed(container, points, order, { valueKey, format,
   container.querySelectorAll('circle.token-dot').forEach(c => {
     c.addEventListener('mouseenter', () => highlightExercise(c.dataset.exercise));
     c.addEventListener('mousemove', e => showTip(e,
-      `<b>${c.dataset.model}</b><br>${c.dataset.exercise}<br>${format(+c.dataset.value)}${unit} &middot; ${c.dataset.tries} tries`));
+      `<b>${c.dataset.model}</b><br>${c.dataset.exercise}<br>${format(+c.dataset.value)}${unit} &middot; ${c.dataset.tries} tries` + dotRunTable(c)));
     c.addEventListener('mouseleave', () => { hideTip(); clearHighlight(); });
   });
   container.querySelectorAll('circle.token-avg-dot').forEach(c => {
@@ -2059,7 +2129,7 @@ function renderCostSpread(container, points, metric, order) {
     e.pts.forEach((p, j) => {
       const x = cx + offsets[j];
       const y = yScale(p[metric]);
-      dotsSvg += `<circle class="cost-dot ${p.pass ? 'pass' : 'fail'}" data-exercise="${e.ex}" data-model="${p.model}" data-value="${p[metric]}" data-pass="${p.pass}" data-tries="${p.tries}" cx="${x}" cy="${y}" r="3.5"/>`;
+      dotsSvg += `<circle class="cost-dot ${p.pass ? 'pass' : 'fail'}" data-exercise="${e.ex}" data-model="${p.model}" data-value="${p[metric]}" data-pass="${p.pass}" data-tries="${p.tries}" data-ts="${p.timestamp}" data-seed="${p.seed}" cx="${x}" cy="${y}" r="3.5"/>`;
     });
     if (e.avgPass !== null && e.avgFail !== null) {
       gapSvg += `<line class="cost-gap-line" x1="${cx}" x2="${cx}" y1="${yScale(e.avgPass)}" y2="${yScale(e.avgFail)}"/>`;
@@ -2078,7 +2148,7 @@ function renderCostSpread(container, points, metric, order) {
 
   container.querySelectorAll('circle.cost-dot').forEach(c => {
     c.addEventListener('mousemove', e => showTip(e,
-      `<b>${c.dataset.exercise}</b><br>${c.dataset.model}<br>${c.dataset.pass === 'true' ? 'pass' : 'fail'}, ${c.dataset.tries || '?'} tries<br>${Number(c.dataset.value).toLocaleString()}${unit}`));
+      `<b>${c.dataset.exercise}</b><br>${c.dataset.model}<br>${c.dataset.pass === 'true' ? 'pass' : 'fail'}, ${c.dataset.tries || '?'} tries<br>${Number(c.dataset.value).toLocaleString()}${unit}` + dotRunTable(c)));
     c.addEventListener('mouseleave', hideTip);
   });
   container.querySelectorAll('circle.cost-avg-dot').forEach(c => {
@@ -2340,23 +2410,7 @@ function renderHeatmap(matrixData, matrixModels, perfPts) {
       const ctxLine = markN > 0 ? ` &middot; ${markLabel.toLowerCase()}: ${markN} run${markN === 1 ? '' : 's'}` : '';
       const lowN = +td.dataset.lowtrust || 0;
       const trustLine = lowN > 0 ? ` &middot; ${lowN} run${lowN === 1 ? '' : 's'} with low trust (recalled / downloaded the answer)` : '';
-      // A table reads better than comma-joined text once a cell has more than a
-      // couple of repeat runs — each run is a row, each stat its own column.
-      const runRows = runs.map(r => `<tr${r.superseded ? ' class="superseded" title="Superseded by a later run on the same seed — not counted"' : ''}>
-        <td>${r.timestamp.slice(5, 16).replace('T', ' ')}</td>
-        <td class="${r.pass ? '' : 'fail-cell'}">${r.pass ? 'pass' : (data.end_reason_labels[r.end_reason] || 'fail').toLowerCase()}</td>
-        <td>${r.tries || '?'}</td>
-        <td>${r.duration}s</td>
-        <td>${r.tokens ? r.tokens.toLocaleString() : '?'}</td>
-        <td>${r.requests ?? '–'}</td>
-        <td>${r.seed || '?'}</td>
-        <td>${(r.flags || []).map(f => f === 'reasoning_cut' && r.think_blocks ? `reasoning cut ${r.think_cuts}/${r.think_blocks}` : f).join(', ')}${r.trust < 1 ? ` <b title="counts this much toward capability scores (outcomes.py TRUST)">· trust ${Math.round(r.trust * 100)}%</b>` : ''}</td>
-        <td class="tt-cmd" title="${r.run_cmd}">${r.run_cmd}</td>
-      </tr>`).join('');
-      const runTable = runs.length ? `<table>
-        <thead><tr><th>When</th><th>Result</th><th>Tries</th><th>Time</th><th title="output tokens">Out tok</th><th title="model requests (Harbor only)">Req</th><th>Seed</th><th>Flags</th><th>Run</th></tr></thead>
-        <tbody>${runRows}</tbody>
-      </table>` : '';
+      const runTable = runTableHtml(runs);
       const liveRuns = runs.filter(r => !r.superseded);
       const spreadRows = Object.keys(SPREAD).map(k => [k, spreadOf(liveRuns, k)]).filter(([, sp]) => sp)
         .map(([k, sp]) => `<tr><td>${SPREAD[k].label}</td><td>${SPREAD[k].fmt(sp.mean)}</td><td>±${SPREAD[k].fmt(sp.sd)}</td><td${sp.cv >= SPREAD_FLOOR ? ' style="color:var(--spread-ring);font-weight:600"' : ''}>${Math.round(sp.cv * 100)}%</td></tr>`).join('');
@@ -2533,7 +2587,7 @@ function renderUsefulnessSection(ex) {
       `<b>${d.label}</b><br>` +
       `${d.models_passed}/${d.n_models} models passed (${(d.pass_rate_across_models * 100).toFixed(0)}%)<br>` +
       `discriminative score ${d.discriminative.toFixed(2)}<br>` +
-      `avg ${d.avg_duration.toFixed(0)}s over ${d.n_attempts} attempts<br>` +
+      `avg ${d.avg_duration.toFixed(0)}s${d.avg_out_tokens != null ? ` &middot; ${d.avg_out_tokens.toLocaleString()} output tokens` : ''} over ${d.n_attempts} attempts<br>` +
       (d.flakiness !== null ? `repeat-run flakiness ${d.flakiness.toFixed(2)} (${d.n_flaky_models} model${d.n_flaky_models === 1 ? '' : 's'} re-ran it)` : 'no repeat runs to judge consistency') +
       (d.timeout_rate !== null ? `<br>${(d.timeout_rate * 100).toFixed(0)}% of failures were timeouts (${d.timeout_fails})` : '')
     ));
@@ -2586,6 +2640,7 @@ function renderUsefulnessSection(ex) {
     { key: 'discriminative', label: 'Discriminative' },
     { key: 'tries_discriminative', label: 'Tries-discriminative' },
     { key: 'avg_duration', label: 'Avg duration' },
+    { key: 'avg_out_tokens', label: 'Avg out tokens' },
     { key: 'flakiness', label: 'Flakiness' },
     { key: 'timeout_rate', label: 'Timeout rate' },
     { key: 'recall_rate', label: 'Recall rate' },
@@ -2617,6 +2672,7 @@ function renderUsefulnessSection(ex) {
       <td>${d.discriminative.toFixed(2)}</td>
       <td>${d.tries_discriminative !== null ? d.tries_discriminative.toFixed(2) : '—'}</td>
       <td>${d.avg_duration.toFixed(0)}s</td>
+      <td>${d.avg_out_tokens != null ? d.avg_out_tokens.toLocaleString() : '—'}</td>
       <td>${d.flakiness !== null ? d.flakiness.toFixed(2) : '—'}</td>
       <td>${d.timeout_rate !== null ? `${(d.timeout_rate * 100).toFixed(0)}% (${d.timeout_fails})` : '—'}</td>
       <td title="${d.recall_attempts ? `${d.recall_attempts} Harbor attempts, shrunk toward the overall rate` : 'no Harbor attempts: overall rate'}">${(d.recall_rate * 100).toFixed(0)}%${d.recall_attempts ? '' : '*'}</td>
@@ -2645,6 +2701,7 @@ const detailCols = [
   { key: 'pass', label: 'Pass' },
   { key: 'tries', label: 'Tries' },
   { key: 'duration', label: 'Duration (s)' },
+  { key: 'tokens', label: 'Out tokens' },
   { key: 'run_cmd', label: 'Run' },
 ];
 let detailSort = { key: 'exercise', dir: 1 };
@@ -2672,6 +2729,7 @@ function renderDetailTable(detailData) {
     <td class="pass-cell ${d.pass ? 'pass' : 'fail'}">${d.pass ? 'pass' : 'fail'}</td>
     <td>${d.tries}</td>
     <td>${d.duration}</td>
+    <td>${d.tokens != null ? d.tokens.toLocaleString() : '–'}</td>
     <td>${d.run_cmd}</td>
   </tr>`).join('') + '</tbody>';
 
@@ -2832,6 +2890,15 @@ function renderRecentRuns() {
   const dur = sec => sec == null ? '–' : sec < 60 ? `${sec}s` : sec < 3600 ? `${Math.round(sec / 60)}m` : `${Math.floor(sec / 3600)}h ${Math.round(sec % 3600 / 60)}m`;
   const fmtTok = n => n == null ? '–' : n >= 1e6 ? (n / 1e6).toFixed(2) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'k' : n;
   const endLabel = k => (data.end_reason_labels || {})[k] || k;
+  // short badge text for outcome flags, worded as in the stat / column headers; the long
+  // outcomes.FLAGS text stays in the badge tooltip
+  const FLAG_SHORT = { context: 'context', output_limit: 'output limit', reasoning_cut: 'reasoning cut', malformed: 'malformed',
+    edit_errors: 'edit errors', lint: 'lint', wrong_file: 'wrong file', build_failed: 'build failed', test_timeout: 'test timeout',
+    lazy: 'lazy', markup_final: 'markup final', server_error: 'server error', slow_server: 'slow server', proxy_rejected: 'proxy rejected',
+    knows_source: 'knows source', knows_early: 'knows early', recalled_content: 'recalled solution', fetched_source: 'fetched source',
+    recalled_inferred: 'recalled', internet: 'internet', source_in_prompt: 'source in prompt', tool_errors: 'tool errors',
+    code_in_think: 'code in thinking', copied_from_think: 'copied from think', think_spill: 'think spill', looped: 'looped',
+    loop_stuck: 'stuck loop', max_tokens: 'max tokens', wrote_tests: 'own tests', never_tested: 'never tested', ran_past_pass: 'ran past pass' };
   const endColor = (pass, k) => pass ? 'var(--status-good)'
     : k === 'harness' ? 'var(--text-muted)'
     : (data.end_reason_groups || {})[k] === 'censored' ? 'var(--fail-limit)' : 'var(--status-critical)';
@@ -2855,14 +2922,14 @@ function renderRecentRuns() {
       if (groups.length && groups[groups.length - 1].label === t.label) groups[groups.length - 1].items.push(t);
       else groups.push({ label: t.label, items: [t] });
     }
-    const tip = t => `${t.pass ? 'pass' : endLabel(t.end)}${t.steps != null ? `, ${t.steps} ${r.runner === 'aider' ? 'tries' : 'calls'}` : ''}${t.dur != null ? `, ${Math.round(t.dur)}s` : ''}`;
+    const tip = t => `${t.pass ? 'pass' : endLabel(t.end)}${t.steps != null ? `, ${t.steps} ${r.runner === 'aider' ? 'tries' : 'calls'}` : ''}${t.dur != null ? `, ${Math.round(t.dur)}s` : ''}${t.tok != null ? `, ${fmtTok(t.tok)} tok` : ''}`;
     const tasks = groups.map(g => `<span class="rr-task" data-r="${g.items.map(t => r.results.indexOf(t)).join(',')}" title="${esc(g.label + '\n' + g.items.map(tip).join('\n'))}">${esc(g.label.replace(/ ·\S+$/, ''))}` +
       `<span class="rr-pips">${g.items.map(t => `<span class="rr-pip" style="background:${endColor(t.pass, t.end)}"></span>`).join('')}</span></span>`).join('');
     // chips: non-pass end reasons (timeouts...) first, then outcome flags; each colored by the share of attempts that hit it
     const chips = [
       ...Object.entries(r.ends).filter(([k]) => k !== 'pass').sort((a, b) => b[1] - a[1])
         .map(([k, n]) => ({ n, label: endLabel(k), fatal: true, hit: t => t.end === k && !t.pass })),
-      ...Object.entries(r.flags || {}).map(([k, n]) => ({ n, label: (data.flag_labels || {})[k] || k, hit: t => (t.flags || []).includes(k) })),
+      ...Object.entries(r.flags || {}).map(([k, n]) => ({ n, label: (data.flag_labels || {})[k] || k, short: FLAG_SHORT[k] || k.replace(/_/g, ' '), good: (data.good_flags || []).includes(k), hit: t => (t.flags || []).includes(k) })),
     ];
     const flagRows = chips.length ? `<div class="rr-flags">${chips.map(c => {
       const lst = names => names.length ? names.map(x => '  ' + x).join('\n') : '  (none)';
@@ -2871,7 +2938,7 @@ function renderRecentRuns() {
         `\n\ndidn't:\n${lst(r.results.filter(t => !c.hit(t)).map(lab))}`;
       const pct = Math.round(100 * c.n / r.attempts);
       const hits = r.results.map((t, i) => c.hit(t) ? i : -1).filter(i => i >= 0).join(',');
-      return `<span class="rr-flag" data-r="${hits}" style="background:color-mix(in srgb, var(${c.fatal ? '--status-critical' : '--status-warn'}) ${Math.round(pct * 0.7)}%, var(--grid))" title="${esc(tip)}">${esc(c.label)} <b>${c.n}</b>/${r.attempts} · ${pct}%</span>`;
+      return `<span class="rr-flag" data-r="${hits}" style="background:color-mix(in srgb, var(${c.fatal ? '--status-critical' : c.good ? '--status-good' : '--status-warn'}) ${Math.round(pct * 0.7)}%, var(--grid))" title="${esc(tip)}">${esc(c.short || c.label)} <b>${c.n}</b>/${r.attempts} · ${pct}%</span>`;
     }).join('')}</div>` : '';
     const span = r.start === r.end ? when(r.start) : `${when(r.start)} → ${when(r.end)}`;
     return `<details${i === 0 ? ' open' : ''}><summary>${quantDotHtml(r.model)}<span class="rr-model">${esc(r.model)}</span>
@@ -2889,6 +2956,7 @@ const FX_Z = { 50: 0.674, 60: 0.842, 70: 1.036, 80: 1.282, 90: 1.645, 95: 1.960,
 const EFFORT_ORDER = { none: 0, low: 1, medium: 2, high: 3, xhigh: 4 };
 const RUNNER_ORDER = { aider: 0, harbor: 1, 'harbor-tc': 2 };
 let fxData = { settings: [], standouts: { models: [], tests: [] } };
+let fxRecs = [];
 // Spread stats: how much repeat runs of one (model, test) disagree on a stat, as a coefficient of
 // variation (sample sd / mean; comparable across stats and test sizes), averaged like any other
 // stat. Appended after the exported stats, so every stat index below runs over FXS. A list of
@@ -2944,12 +3012,17 @@ function fxStats(units, minUnits) {
     if (n < minUnits) return;
     const d = pairs.map(([a, b]) => st.kind === 'rate' ? b - a : Math.log(b / a));
     const est = d.reduce((x, y) => x + y, 0) / n;
-    const se = Math.sqrt(d.reduce((x, y) => x + (y - est) ** 2, 0) / (n - 1) / n);
     const bk = x => st.kind === 'rate' ? x : Math.exp(x) - 1;
     const ci = {};
-    for (const lv of FX_LEVELS) {
-      const z = FX_Z[lv], t = z + (z ** 3 + z) / (4 * (n - 1));
-      ci[lv] = [bk(est - t * se), bk(est + t * se)];
+    if (n === 1) {
+      // one unit: no spread to estimate, so the interval is unbounded (never significant)
+      for (const lv of FX_LEVELS) ci[lv] = [-Infinity, Infinity];
+    } else {
+      const se = Math.sqrt(d.reduce((x, y) => x + (y - est) ** 2, 0) / (n - 1) / n);
+      for (const lv of FX_LEVELS) {
+        const z = FX_Z[lv], t = z + (z ** 3 + z) / (4 * (n - 1));
+        ci[lv] = [bk(est - t * se), bk(est + t * se)];
+      }
     }
     const [lo, hi] = ci[90];
     out.push({ ...st, n, a: pairs.reduce((x, p) => x + p[0], 0) / n, b: pairs.reduce((x, p) => x + p[1], 0) / n,
@@ -3086,14 +3159,14 @@ function fxTestStandouts(recs) {
   const out = [];
   const all = [...variant.keys()].sort();
   for (const t of all) {
-    const units = contrast(new Set([t])), stats = fxStats(units, 4);
+    const units = contrast(new Set([t])), stats = fxStats(units, 1);
     if (stats.length) out.push({ label: t, members: [t], units: units.length, group: false, stats, perModel: units });
   }
   const groups = new Map();
   for (const t of all) { fxPush(groups, `${lang.get(t)} (${variant.get(t)})`, t); fxPush(groups, `all ${variant.get(t)}`, t); }
   for (const [label, ts] of groups) {
     if (ts.length < 2) continue;
-    const units = contrast(new Set(ts)), stats = fxStats(units, 4);
+    const units = contrast(new Set(ts)), stats = fxStats(units, 1);
     if (stats.length) out.push({ label, members: [...ts].sort(), units: units.length, group: true, stats, perModel: units });
   }
   return out;
@@ -3107,6 +3180,7 @@ function fxCompute() {
   // only the latest run per (model, task, seed) counts, as everywhere else
   const latest = new Set(latestPerKey(inWindow, r => `${r.m}|${r.t}|${r.s}`).values());
   const recs = inWindow.filter(r => latest.has(r));
+  fxRecs = recs;
   fxData = { settings: fxSettings(recs), standouts: { models: fxModelStandouts(recs), tests: fxTestStandouts(recs) } };
 }
 
@@ -3282,10 +3356,12 @@ const nsChip = (text, info, med, o, ci) => {
     // outline split by how much of the interval lies on each side of zero: left = decrease
     // (its direction's color), right = increase; the split point is the zero line
     const f = tf(info), lo = f(ci[0]), hi = f(ci[1]);
-    const posShare = hi > lo ? Math.max(0, Math.min(1, hi / (hi - lo))) : (med.delta > 0 ? 1 : 0);
+    const posShare = isFinite(lo) && isFinite(hi) && hi > lo ?Math.max(0, Math.min(1, hi / (hi - lo))) : (med.delta > 0 ? 1 : 0);
     // inside: the faint fill when "color all" is on, else the plain card color
     const inner = o.all ? `color-mix(in srgb, ${col} ${Math.round(8 + 14 * Math.min(1, sizeOf(med)))}%, var(--surface-1))` : 'var(--surface-1)';
-    const cNeg = toneCol(tone({ ...info, delta: -1 })), cPos = toneCol(tone({ ...info, delta: 1 })), at = Math.round((1 - posShare) * 100);
+    // faded like the filled highlights: strength grows with the size of the change
+    const fade = c => `color-mix(in srgb, ${c} ${Math.round(22 + 38 * Math.min(1, sizeOf(med)))}%, transparent)`;
+    const cNeg = fade(toneCol(tone({ ...info, delta: -1 }))), cPos = fade(toneCol(tone({ ...info, delta: 1 }))), at = Math.round((1 - posShare) * 100);
     return `<span class="fx-chip" style="border:2px solid transparent;padding:0 4px;background:linear-gradient(${inner}, ${inner}) padding-box, linear-gradient(115deg, ${cNeg} ${at}%, ${cPos} ${at}%) border-box">${text}</span>`;
   }
   if (o.all) return `<span class="fx-chip" style="background:color-mix(in srgb, ${col} ${Math.round(8 + 14 * Math.min(1, sizeOf(med)))}%, transparent)">${text}</span>`;
@@ -3538,6 +3614,98 @@ function renderSettingsEffects() {
 const SO_STORAGE_KEY = 'evalViz.standouts';
 const soOpen = new Set();
 let soInit = false;
+// ---- score breakdown: per model, a group's overall score with its component stats around it ----
+// inv = plotted as 1 - value (a rate of something bad); rank = ratio stat, plotted as its percentile
+// among the shown models (cheapest = 100%)
+const SB_GROUPS = [
+  { id: 'capability', title: 'Capability', overall: { key: 'capability' }, parts: [
+    { key: 'pass' }, { key: 'tests_frac' }, { key: 'timeout', inv: 1 }, { key: 'done_wrong', inv: 1 }] },
+  { id: 'stability', title: 'Stability', overall: { key: 'stability' }, parts: [
+    { key: 'glitch_end', inv: 1 }, { key: 'looped', inv: 1 }, { key: 'loop_stuck', inv: 1 }, { key: 'spill', inv: 1 },
+    { key: 'malformed', inv: 1 }, { key: 'syntax', inv: 1 }, { key: 'edit_err', inv: 1 }, { key: 'tool_err', inv: 1 }, { key: 'think_cut', inv: 1 }] },
+  { id: 'cost', title: 'Cost & timing', overall: { key: 'net_tokens', rank: 1 }, parts: [
+    { key: 'out_tokens', rank: 1 }, { key: 'duration', rank: 1 }, { key: 'requests', rank: 1 }, { key: 'steps', rank: 1 }] },
+];
+function renderScoreBreakdown() {
+  const host = document.getElementById('sbCharts');
+  if (!host) return;
+  const byG = new Map();
+  for (const r of fxRecs) {
+    if (!byG.has(r.g)) byG.set(r.g, new Map());
+    fxPush(byG.get(r.g), r.t, r);
+  }
+  const means = new Map([...byG].map(([g, byT]) => [g, fxMeanVec([...byT.values()])]));
+  const idx = k => FXS.findIndex(s => s.key === k);
+  if (!means.size) { host.innerHTML = '<p style="font-size:12px;color:var(--text-muted);">No data.</p>'; return; }
+  host.innerHTML = '';
+  for (const grp of SB_GROUPS) {
+    // each model's plotted value for one stat (0..1, higher = better), or null
+    const norm = spec => {
+      const i = idx(spec.key), st = FXS[i];
+      if (i < 0) return null;
+      const raw = new Map([...means].map(([g, v]) => [g, v[i]]).filter(([, v]) => v != null));
+      let out;
+      if (spec.rank) {
+        const sorted = [...raw.values()].sort((a, b) => b - a);   // biggest (worst) first
+        out = new Map([...raw].map(([g, v]) => [g, sorted.length < 2 ? 0.5 : sorted.indexOf(v) / (sorted.length - 1)]));
+      } else out = new Map([...raw].map(([g, v]) => [g, spec.inv ? 1 - v : v]));
+      return { spec, st, raw, norm: out };
+    };
+    const hub = norm(grp.overall);
+    const parts = grp.parts.map(norm).filter(p => p && p.norm.size);
+    if (!hub || !hub.norm.size) continue;
+    const models = [...hub.norm.keys()].sort((a, b) => hub.norm.get(b) - hub.norm.get(a));
+    const colW = 44, W = Math.max(640, 64 + models.length * colW + 16), H = 360, M = { top: 14, right: 16, bottom: 120, left: 48 };
+    const innerW = W - M.left - M.right, innerH = H - M.top - M.bottom;
+    const all = [...hub.norm.values(), ...parts.flatMap(p => [...p.norm.values()])];
+    // axis floor from the 10th percentile, so a few outlier models don't stretch it to 0;
+    // anything below is drawn on the floor line (its tooltip has the real value)
+    const sortedAll = [...all].sort((x, y) => x - y);
+    const lo = Math.max(0, Math.floor((sortedAll[Math.floor(sortedAll.length * 0.1)] - 0.03) * 10) / 10), hi = 1;
+    const yS = v => M.top + (1 - (Math.max(v, lo) - lo) / (hi - lo)) * innerH;
+    const xS = i => M.left + (i + 0.5) * (innerW / models.length);
+    let g = '';
+    for (let v = lo; v <= hi + 1e-9; v += 0.1) {
+      g += `<line class="scatter-gridline" x1="${M.left}" x2="${W - M.right}" y1="${yS(v)}" y2="${yS(v)}"/>`;
+      g += `<text class="scatter-axis-label" x="${M.left - 8}" y="${yS(v) + 4}" text-anchor="end">${Math.round(v * 100)}%</text>`;
+    }
+    g += `<line class="scatter-axis" x1="${M.left}" x2="${M.left}" y1="${M.top}" y2="${H - M.bottom}"/>`;
+    const dotsFor = [];
+    let spokes = '', sats = '', hubs = '', labels = '';
+    models.forEach((m, mi) => {
+      const cx = xS(mi), hy = yS(hub.norm.get(m));
+      labels += `<text class="scatter-axis-label" transform="translate(${cx + 3},${H - M.bottom + 12}) rotate(55)" text-anchor="start">${esc(m.replace(' (main)', ''))}</text>`;
+      const present = parts.filter(p => p.norm.has(m));
+      present.forEach((p, pi) => {
+        // fan the satellites sideways so same-height dots don't stack
+        const dx = (pi - (present.length - 1) / 2) * Math.min(5, (colW - 10) / Math.max(1, present.length - 1));
+        const px = cx + dx, py = yS(p.norm.get(m));
+        spokes += `<line class="sb-spoke" x1="${cx}" y1="${hy}" x2="${px}" y2="${py}"/>`;
+        dotsFor.push({ x: px, y: py, m, p, kind: 'part' });
+      });
+      dotsFor.push({ x: cx, y: hy, m, p: hub, kind: 'hub' });
+    });
+    const colorOf = k => k < 8 ? `var(--cat-${k + 1})` : 'var(--text-secondary)';
+    dotsFor.forEach((d, n) => {
+      if (d.kind === 'part') sats += `<circle class="sb-dot" data-n="${n}" cx="${d.x}" cy="${d.y}" r="3.6" style="fill:${colorOf(parts.indexOf(d.p))}"/>`;
+      else hubs += `<circle class="scatter-point sb-dot" data-n="${n}" cx="${d.x}" cy="${d.y}" r="8" style="fill:${quantColorVar(d.m)};stroke:var(--text-primary);stroke-width:2"/>`;
+    });
+    const wrap = document.createElement('div');
+    const legend = `<span class="legend-item"><svg width="14" height="14"><circle cx="7" cy="7" r="6" fill="var(--text-muted)" stroke="var(--text-primary)" stroke-width="2"/></svg>${esc(FXS[idx(grp.overall.key)].key)} (overall)</span>` +
+      parts.map((p, k) => `<span class="legend-item"><span class="swatch" style="background:${colorOf(k)}"></span>${esc(p.spec.key)}${p.spec.inv ? ' (1&minus;)' : p.spec.rank ? ' (percentile)' : ''}</span>`).join('');
+    wrap.innerHTML = `<h3 style="margin:16px 0 4px">${grp.title}</h3><div class="legend" style="margin:0 0 4px">${legend}</div>` +
+      `<div style="overflow-x:auto"><svg class="scatter-svg" viewBox="0 0 ${W} ${H}" width="${W}" style="max-width:none">${g}${spokes}${sats}${hubs}${labels}</svg></div>`;
+    host.appendChild(wrap);
+    const svg = wrap.querySelector('svg');
+    svg.querySelectorAll('.sb-dot').forEach(c => {
+      const d = dotsFor[+c.dataset.n], st = d.p.st;
+      c.addEventListener('mousemove', e => showTip(e,
+        `<b>${esc(d.m)}</b><br>${esc(st.label)}${d.kind === 'hub' ? ' <i>(overall)</i>' : ''}<br>value ${fmtVal(st, d.p.raw.get(d.m))} &rarr; plotted ${Math.round(d.p.norm.get(d.m) * 100)}%${d.p.spec.rank ? ' (percentile among shown models)' : d.p.spec.inv ? ' (1 &minus; value)' : ''}`));
+      c.addEventListener('mouseleave', hideTip);
+    });
+  }
+}
+
 function renderStandouts() {
   const kindEl = () => document.querySelector('input[name="soKind"]:checked');
   const ids = ['soWhich', 'soAll', 'soLevel', 'soAbs', 'soColorAll', 'soRing'];
@@ -3662,6 +3830,81 @@ function renderStandouts() {
     }).join('') : '<tr><td class="fx-meta">Nothing stands out.</td></tr>';
 }
 
+function renderReasoningSpread() {
+  const el = document.getElementById('reasonChart');
+  const groups = new Map();
+  for (const t of (data.reasoning || [])) {
+    if (!modelInView(t.m) || !inView(t.l)) continue;
+    const key = `${t.m}\u0000${t.e}\u0000${t.cap}`;
+    let g = groups.get(key);
+    if (!g) groups.set(key, g = { model: t.m, effort: t.e, cap: t.cap, r: [], xs: [], cuts: 0, trials: 0 });
+    g.r.push(...t.r); g.xs.push(...t.x); g.cuts += t.x.length; g.trials++;
+  }
+  const q = (a, p) => a[Math.min(a.length - 1, Math.floor(p * (a.length - 1) + 0.5))];
+  const rows = [...groups.values()].filter(g => g.r.length >= 5).map(g => {
+    const a = g.r.slice().sort((x, y) => x - y);
+    return { ...g, all: g.r, n: a.length, p10: q(a, 0.1), p25: q(a, 0.25), med: q(a, 0.5), p75: q(a, 0.75), p90: q(a, 0.9),
+             max: a[a.length - 1], cutRate: g.cuts / a.length,
+             // effort / cap go on the row's second line, so drop them from the model label's [..]
+             name: g.model.replace(/ \[([^\]]*)\]$/, (_, in_) => {
+               const kept = in_.split(', ').filter(t => !/^(none|low|medium|high|xhigh)$/.test(t) && !t.startsWith('think='));
+               return kept.length ? ` [${kept.join(', ')}]` : '';
+             }),
+             sub: [g.effort, g.cap ? 'cap ' + (g.cap / 1000) + 'k' : ''].filter(Boolean).join(' \u00b7 ') };
+  });
+  const mode = document.getElementById('reasonSortBy').value;
+  rows.sort((a, b) => mode === 'alpha' ? (a.name + a.sub).localeCompare(b.name + b.sub)
+    : mode === 'median' ? b.med - a.med : mode === 'p90' ? b.p90 - a.p90 : (b.cutRate - a.cutRate) || (b.p90 - a.p90));
+  const hit = rows.filter(r => r.cuts > 0).length;
+  document.getElementById('reasonCount').textContent = `${rows.length} groups, ${hit} hit the cap`;
+  if (!rows.length) { el.innerHTML = '<p style="font-size:12px;color:var(--text-muted);">No Harbor requests in this view.</p>'; return; }
+  const labelW = Math.min(360, Math.max(...rows.map(r => r.name.length)) * 6.2 + 24), rowH = 46, barH = 36;
+  const W = 900, M = { left: labelW, right: 110, top: 22, bottom: 8 }, H = M.top + M.bottom + rows.length * rowH;
+  // bins are a divisor of 1k wide, so bin edges (and the cap line) fall on 1k multiples
+  const want = Math.max(...rows.map(r => Math.max(r.p90, r.cap || 0, r.max * 0.98))) * 1.03 || 1;
+  const bw = [250, 500, 1000, 2000, 5000].find(b => want / b <= 40) || 5000;
+  const maxX = Math.ceil(want / bw) * bw;
+  const x = v => M.left + v / maxX * (W - M.left - M.right);
+  const EFF = { low: 'var(--seq-blue)', medium: 'var(--neutral-down)', high: 'var(--seq-purple)', xhigh: 'var(--seq-purple)' };
+  const NB = Math.round(maxX / bw);
+  let svg = '';
+  const step = [500, 1000, 2000, 4000, 5000, 10000].find(s => maxX / s <= 10) || 20000;
+  for (let v = 0; v <= maxX; v += step)
+    svg += `<line x1="${x(v)}" x2="${x(v)}" y1="${M.top - 4}" y2="${H - M.bottom}" stroke="var(--border)"/><text x="${x(v)}" y="${M.top - 8}" font-size="10" text-anchor="middle" fill="var(--text-muted)">${v >= 1000 ? v / 1000 + 'k' : v}</text>`;
+  rows.forEach((r, i) => {
+    const y = M.top + i * rowH, base = y + rowH - 5, col = EFF[r.effort] || 'var(--text-muted)';
+    // histogram: requests per bin, the cut-off ones (stacked on top) in red
+    const ok = new Array(NB).fill(0), cut = new Array(NB).fill(0);
+    const bin = v => Math.min(NB - 1, Math.floor(v / bw));
+    r.all.forEach(v => ok[bin(v)]++);
+    const redOp = 0.3 + 0.7 * Math.min(1, r.cutRate / 0.1);  // fainter red = a smaller share of requests cut
+    // cut requests land a few tokens past the cap (the closing marker), so in the bin just after the line
+    r.xs.forEach(v => { ok[bin(v)]--; cut[bin(v)]++; });
+    const top = Math.max(...ok.map((c, k) => c + cut[k]), 1);
+    svg += `<line x1="${M.left}" x2="${W - M.right}" y1="${base}" y2="${base}" stroke="var(--border)"/>`;
+    svg += `<circle cx="${M.left - 12}" cy="${y + rowH / 2 - 5}" r="4" fill="${quantColorVar(r.model)}"><title>${esc(quantOf(r.model))}</title></circle><text x="${M.left - 22}" y="${y + rowH / 2 - 2}" font-size="11" text-anchor="end" fill="var(--text-primary)">${esc(r.name)}</text><text x="${M.left - 22}" y="${y + rowH / 2 + 11}" font-size="10" text-anchor="end" fill="var(--text-muted)">${esc(r.sub)}</text>`;
+    for (let k = 0; k < NB; k++) {
+      // log-ish height (log1p) so a lone request in a bin still shows next to a bin of hundreds;
+      // the bin's total height is split between ok and cut in proportion to their counts
+      const tot = ok[k] + cut[k], hTot = tot ? Math.log1p(tot) / Math.log1p(top) * barH : 0;
+      const hCut = tot ? hTot * cut[k] / tot : 0, hOk = hTot - hCut, bx = x(k * bw), w = Math.max(1, x(bw) - x(0) - 1);
+      if (hOk > 0) svg += `<rect x="${bx}" y="${base - hOk}" width="${w}" height="${hOk}" fill="${col}" opacity="0.8"/>`;
+      if (hCut > 0) svg += `<rect x="${bx}" y="${base - hOk - hCut}" width="${w}" height="${Math.max(hCut, 2)}" fill="var(--status-critical)" opacity="${redOp}"/>`;
+    }
+    svg += `<line x1="${x(r.med)}" x2="${x(r.med)}" y1="${base - barH - 2}" y2="${base + 3}" stroke="var(--text-primary)" stroke-width="1.5"/>`;
+    if (r.cap) svg += `<line x1="${x(r.cap)}" x2="${x(r.cap)}" y1="${y + 1}" y2="${y + rowH - 1}" stroke="var(--status-critical)" stroke-width="1.2" stroke-dasharray="3 2"/>`;
+    svg += `<text x="${W - M.right + 8}" y="${y + rowH / 2 + 4}" font-size="11" fill="${r.cuts ? 'var(--status-critical)' : 'var(--text-muted)'}">${r.cuts ? (r.cutRate * 100).toFixed(r.cutRate < 0.1 ? 1 : 0) + '% cut \u00b7 ' : ''}n=${r.n}</text>`;
+    svg += `<rect class="rs-hit" data-i="${i}" x="0" y="${y}" width="${W}" height="${rowH}" fill="transparent"/>`;
+  });
+  el.innerHTML = `<svg class="scatter-svg" viewBox="0 0 ${W} ${H}" width="100%" style="min-width:640px;max-width:${W}px">${svg}</svg>`;
+  el.querySelectorAll('.rs-hit').forEach(h => {
+    const r = rows[+h.dataset.i];
+    h.addEventListener('mousemove', e => showTip(e, `<b>${esc(r.name)}</b> ${esc(r.sub)}<br>${r.n} requests over ${r.trials} trials<br>median ${r.med} &middot; p25&ndash;p75 ${r.p25}&ndash;${r.p75} &middot; p10&ndash;p90 ${r.p10}&ndash;${r.p90} &middot; max ${r.max}<br>${r.cuts} cut by the cap${r.cap ? ' (' + r.cap + ')' : ''} (${(r.cutRate * 100).toFixed(1)}%)`));
+    h.addEventListener('mouseleave', hideTip);
+  });
+}
+document.getElementById('reasonSortBy').addEventListener('change', renderReasoningSpread);
+
 function applyFilters() {
   saveFiltersToStorage();
   updateExerciseCountProse();
@@ -3684,6 +3927,7 @@ function applyFilters() {
   redrawSpeed(perfOverall, chart1Data);
   redrawTokens(perfPoints, chart1Data);
   renderCostSpreadSection(cost);
+  renderReasoningSpread();
   renderQualityScatter(chart1Data, perfOverall);
   renderHeatmap(matrixFiltered, matrixModelsFiltered, perfPoints);
   renderEndingsSection(cost, chart1Data);
@@ -3692,6 +3936,7 @@ function applyFilters() {
   fxCompute();
   renderSettingsEffects();
   renderStandouts();
+  renderScoreBreakdown();
   updateFilterFab();
   renderModelList();
 }

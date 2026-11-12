@@ -28,6 +28,7 @@ import outcomes
 
 TSV_PATH = '../aider-results-per-test.tsv'  # run from viz/ (run.sh / collect.py do)
 HARBOR_TSV_PATH = '../harbor-trials.tsv'  # harbor/collect.py
+HARBOR_REQUESTS_PATH = '../harbor-requests.tsv'  # harbor/collect.py: one row per model request
 TEMPLATE_PATH = 'eval-viz-template.html'
 OUTPUT_PATH = 'eval-viz.html'
 
@@ -221,7 +222,9 @@ def assign_model_keys(rows):
     # keying models by full path made those separate models with identical labels
     # (duplicate heatmap column + filter checkbox). The filename is the identity.
     for row in rows:
-        row['srv.-m'] = row['srv.-m'].split('/')[-1]
+        # Shard markers too: the same model re-split (-of-00002 vs -of-00003) is the same
+        # model, but different keys gave identical labels (duplicate rows).
+        row['srv.-m'] = _SHARD_RE.sub('', row['srv.-m'].split('/')[-1])
     # The same gguf run at different reasoning efforts or sampling settings is a
     # different model in practice. Each file's most common settings combo keeps the plain
     # label; any other combo becomes its own model, 'file.gguf@<differences>' listing only
@@ -407,6 +410,32 @@ def load_attempts():
     return attempts, excluded, recent
 
 
+def reasoning_lengths(rows):
+    """Per Harbor attempt, the reasoning-token count of each of its model requests (from
+    harbor-requests.tsv), for the reasoning-length spread chart. 'x' lists the lengths of
+    the requests the thinking cap cut off (a subset of 'r'). Aider has no per-request
+    data, so it isn't here. The page groups by model + effort + cap and applies its filters."""
+    by_trial = defaultdict(list)
+    for q in read_tsv(HARBOR_REQUESTS_PATH):
+        by_trial[(q['job'], q['trial'])].append(q)
+    out = []
+    for a in rows:
+        if a['runner'] != 'harbor':
+            continue
+        reqs = by_trial.get((a['run'], a['seed']))
+        if not reqs:
+            continue
+        raw = a['raw']
+        out.append({
+            'm': short_label(a['model']), 'l': task_label(a['task']),
+            'e': raw.get('px_effort') or raw.get('srv.eff.reasoning_effort', ''),
+            'cap': _int(reqs[0]['reasoning_budget']) or _int(raw.get('px_reasoning_budget', '')) or 0,
+            'r': [int(q['reasoning_tokens']) for q in reqs],
+            'x': [int(q['reasoning_tokens']) for q in reqs if q['budget_cutoff'] == '1'],
+        })
+    return out
+
+
 def model_settings(attempts):
     """Per model label: each differentiating setting -> the sorted values its attempts ran
     with (a model key pools runs, so a value can be mixed, e.g. aider + Harbor). Feeds the
@@ -497,7 +526,7 @@ EFFECT_STATS = [
     # glitch / quality counters (None where a runner doesn't record them)
     ('tests_frac', 'tests passed (fraction, Harbor)', 'rate', 'up',
      lambda a: _px(a, 'tests_frac_adj') if _px(a, 'tests_frac_adj') is not None else _px(a, 'tests_frac')),
-    ('own_tests', 'attempts that wrote their own tests (Harbor)', 'rate', None,
+    ('own_tests', 'attempts that wrote their own tests (Harbor)', 'rate', 'up',
      lambda a: float('wrote_tests' in a['flags']) if a['runner'] == 'harbor' else None),
     ('malformed', 'attempts with malformed calls / edits', 'rate', 'down', lambda a: float('malformed' in a['flags'])),
     # one number for all degeneration signs above, weighted by severity (outcomes.GLITCH_WEIGHTS);
@@ -709,7 +738,7 @@ def recent_runs(attempts, n=RECENT_RUNS):
                        if (tot := int(sum(_px(a, col) or 0 for a in atts))) or lb in ('tool calls', 'edits')},
             'details': {k: v for k, v in details.items() if v not in ('', None)},
             'results': [{'label': task_label(a['task']), 'pass': a['pass'], 'end': a['end_reason'],
-                         'steps': a['steps'], 'dur': a['duration'], 'flags': sorted(a['flags'])} for a in atts],
+                         'steps': a['steps'], 'dur': a['duration'], 'tok': a['out_tokens'], 'flags': sorted(a['flags'])} for a in atts],
         })
     return out
 
@@ -974,6 +1003,7 @@ def build_dataset(rows, excluded_harness=0):
         for row in ex_rows:
             by_model[short_label(row['model'])].append(row)
         model_pass_rates, model_mean_durations, flakiness_scores = [], [], []
+        model_mean_tokens = []
         for m in matrix_models:
             rs = by_model.get(m, [])
             if not rs:
@@ -986,6 +1016,9 @@ def build_dataset(rows, excluded_harness=0):
             durs = [r_['duration'] for r_ in rs if r_['duration'] is not None]
             if durs:
                 model_mean_durations.append(sum(durs) / len(durs))
+            toks_ = [r_['out_tokens'] for r_ in rs if r_['out_tokens'] is not None]
+            if toks_:
+                model_mean_tokens.append(sum(toks_) / len(toks_))
             if len(rs) > 1:
                 # NOT shrunk toward 0.5 here: this formula (p(1-p)*4) already REWARDS
                 # closeness to 0.5, so shrinking the input rate toward 0.5 would inflate
@@ -998,6 +1031,7 @@ def build_dataset(rows, excluded_harness=0):
         p = sum(model_pass_rates) / len(model_pass_rates) if model_pass_rates else 0
         discriminative = p * (1 - p) * 4
         avg_duration = sum(model_mean_durations) / len(model_mean_durations) if model_mean_durations else 0
+        avg_out_tokens = sum(model_mean_tokens) / len(model_mean_tokens) if model_mean_tokens else None
         flakiness = sum(flakiness_scores) / len(flakiness_scores) if flakiness_scores else None
         hist2 = defaultdict(lambda: {'pass': 0, 'fail': 0})
         for row in ex_rows:
@@ -1061,6 +1095,7 @@ def build_dataset(rows, excluded_harness=0):
             'eff_across_models': round(eff_pin_prior.get(task, eff_global), 4),
             'pass_rate_across_models': round(p, 3), 'discriminative': round(discriminative, 3),
             'avg_duration': round(avg_duration, 1),
+            'avg_out_tokens': round(avg_out_tokens) if avg_out_tokens is not None else None,
             'flakiness': round(flakiness, 3) if flakiness is not None else None,
             'n_flaky_models': len(flakiness_scores), 'tries_hist': tries_hist,
             'timeout_fails': timeout_fails, 'timeout_rate': timeout_rate,
@@ -1369,9 +1404,11 @@ def build_dataset(rows, excluded_harness=0):
         'end_reason_groups': {k: g for k, (g, _) in outcomes.END_REASONS.items()},
         'end_reason_labels': {k: label for k, (_, label) in outcomes.END_REASONS.items()},
         'flag_labels': outcomes.FLAGS,
+        'good_flags': sorted(outcomes.GOOD_FLAGS),
         'flag_runners': outcomes.FLAG_RUNNERS,
         'low_trust': LOW_TRUST, 'low_trust_task_share': LOW_TRUST_TASK_SHARE,
         'fail_n': len(fail_rows_all), 'detail': detail,
+        'reasoning': reasoning_lengths(rows),
         'perf': perf, 'usefulness': {'exercises': usefulness_ex}, 'cost_spread': cost_spread,
         # Labels for the exercise filter's initial selection (DEFAULT_TOP_N).
         'default_exercises': [pin_label[p] for p in default_pins],
