@@ -243,28 +243,30 @@ def assign_model_keys(rows):
     for row in rows:
         row['_diffs'] = tuple((k, v) for k, v in row['_settings'].items()
                               if v != usual[row['srv.-m']][k])
-    # Coverage (distinct tasks) per file per combo. A combo with similar coverage to the
-    # file's biggest one is a peer, not a stray: peers all get labeled, including the usual
-    # combo, so 'medium' doesn't sit unlabeled next to '[low]'. Thin side-runs (< half the
-    # biggest combo's tasks) stay as before, the usual combo remaining plain next to them.
-    SIMILAR = 0.5
+    # Coverage (distinct tasks) per file per combo. If any non-usual combo has a good
+    # portion of the file's biggest combo's tasks, the file's settings are spelled out on
+    # EVERY version of it -- including the usual combo and thin side-runs -- so none sits
+    # silent next to a labeled one. Only when all the other combos are thin side-runs
+    # (under a quarter of the biggest's tasks, and under MIN_TASKS) does the usual combo
+    # stay plain.
+    SIMILAR, MIN_TASKS = 0.25, 6
     tasks = defaultdict(lambda: defaultdict(set))
     for row in rows:
         tasks[row['srv.-m']][row['_diffs']].add((row['language'], row['exercise']))
     peer_keys = {}
     for m, combos in tasks.items():
         biggest = max(len(t) for t in combos.values())
-        peers = [c for c, t in combos.items() if len(t) >= SIMILAR * biggest]
-        if len(peers) > 1:
+        peers = [c for c, t in combos.items() if len(t) >= min(SIMILAR * biggest, MIN_TASKS)]
+        if any(c for c in peers):  # a significant combo that differs from the usual
             peer_keys[m] = {k for c in peers for k, _ in c}
     for row in rows:
         m = row['srv.-m']
         diffs = dict(row['_diffs'])
         keys = peer_keys.get(m, set())
-        if keys and len(tasks[m][row['_diffs']]) >= SIMILAR * max(len(t) for t in tasks[m].values()):
-            # Spell out every setting that differs among the peers, filling in the usual
-            # value where this combo doesn't differ (blank/unrecorded ones are skipped).
-            diffs = {k: diffs.get(k, usual[m].get(k)) for k in row['_settings'] if k in keys}
+        if keys:
+            # Fill in the usual value where this combo doesn't differ (blank/unrecorded
+            # ones are skipped); its own extra differences stay.
+            diffs.update({k: usual[m].get(k) for k in row['_settings'] if k in keys and k not in diffs})
         row['_label'] = {k: v for k, v in diffs.items() if v}
     # The thinking cap mostly follows effort, so a label that already shows an effort
     # difference leaves the cap out -- unless that would merge two different combos
@@ -463,6 +465,21 @@ def _px(a, col):
     return float(v) if v not in ('', None) else None
 
 
+def _aider_malf(a):
+    """(malformed share of responses, responses) for an aider attempt. Aider logs no response
+    count: each try is one response and each malformed reply costs one retry, so
+    responses ~ tries_taken + malformed (approximate)."""
+    m = max(_px(a, 'hist_edit_format') or 0, _px(a, 'num_malformed_responses') or 0)
+    n = (_px(a, 'tries_taken') or 0) + m
+    return (m / n, n) if n else (None, None)
+
+
+def _per_call(a, col):
+    """Harbor count column per tool call (None for aider / no calls)"""
+    n, c = _px(a, 'tool_calls'), _px(a, col)
+    return c / n if n and c is not None else None
+
+
 def _per_req(a, col):
     n, v = _px(a, 'px_requests'), _px(a, col)
     return v / n if n and v is not None else None
@@ -530,19 +547,26 @@ EFFECT_STATS = [
      lambda a: _px(a, 'tests_frac_adj') if _px(a, 'tests_frac_adj') is not None else _px(a, 'tests_frac')),
     ('own_tests', 'attempts that wrote their own tests (Harbor)', 'rate', 'up',
      lambda a: float('wrote_tests' in a['flags']) if a['runner'] == 'harbor' else None),
-    ('malformed', 'attempts with malformed calls / edits', 'rate', 'down', lambda a: float('malformed' in a['flags'])),
     # one number for all degeneration signs above, weighted by severity (outcomes.GLITCH_WEIGHTS);
     # test results don't enter it. Aider can't see loops / spills, so compare within a runner.
     ('stability', 'stability: 1 - severity-weighted glitches per attempt (repeats count each time)', 'rate', 'up',
      lambda a: None if a['end_reason'] == 'harness' else 1 - outcomes.instability(a['flags'], a['end_reason'], outcomes.flag_counts(a['raw'], a['runner']))),
-    ('tool_err', 'tool calls that errored (Harbor)', 'rate', 'down',
-     lambda a: _px(a, 'tool_errors') / _px(a, 'tool_calls') if _px(a, 'tool_calls') else None),
-    # behaviour to watch, not good/bad: of the runs of consecutive non-zero shell exits, the share that
-    # reach 3+ (pooled over runs, see EFFECT_WEIGHTS)
-    ('bash_streak', 'share of non-zero shell-exit streaks that reach 3+ (Harbor)', 'rate', None,
-     lambda a: _px(a, 'bash_streaks3') / _px(a, 'bash_streaks') if _px(a, 'bash_streaks') else None),
-    ('edit_err', 'edit calls that failed (Harbor)', 'rate', 'down',
-     lambda a: _px(a, 'edit_errors') / _px(a, 'edits') if _px(a, 'edits') else None),
+    # docs/issue-taxonomy.md categories (harbor/issues.py), per tool call, pooled over calls
+    # a malformed reply can happen on any call, so it's a per-call rate (aider: per model response)
+    ('iss_malf', 'malformed per call: broken call / edit block, bash syntax, typo (aider: per response)', 'rate', 'down',
+     lambda a: _per_call(a, 'iss_malformed') if a['runner'] == 'harbor' else _aider_malf(a)[0]),
+    ('iss_hall', 'tool calls that referenced something nonexistent (Harbor)', 'rate', 'down',
+     lambda a: _per_call(a, 'iss_hallucinated')),
+    ('iss_attn', 'tool calls that lost track of state: stale / forgot / no-op (Harbor)', 'rate', 'down',
+     lambda a: _per_call(a, 'iss_attention')),
+    ('overreach', 'attempts that tried hidden tests / sudo / system dirs (Harbor)', 'rate', 'down',
+     lambda a: float('overreach' in a['flags']) if a['runner'] == 'harbor' else None),
+    # dev loop, not a mistake: some is inevitable, a high rate is a bad sign (pooled over compiles)
+    ('compile_fail', 'compiles that failed, incl. throwaway probes (Harbor)', 'rate', 'down',
+     lambda a: _px(a, 'compile_fails') / _px(a, 'compile_runs') if _px(a, 'compile_runs') else None),
+    # behaviour to watch, not good/bad: shell calls whose failure was masked (|| echo fired, echo $? != 0)
+    ('masked', 'shell calls whose failure was masked by || echo / echo $? (Harbor)', 'rate', None,
+     lambda a: _per_call(a, 'bash_masked')),
     ('glitch_end', 'attempts that ended in a glitch (broken output / raw tool markup)', 'rate', 'down',
      lambda a: float(a['end_reason'] == 'glitch' or 'markup_final' in a['flags'])),
     ('done_wrong', 'declared done with tests failing (Harbor)', 'rate', 'down',
@@ -566,9 +590,11 @@ EFFECT_STATS = [
 # by this (default 1), so an attempt with 4 streaks counts 4x one with a single streak
 # (stability-style stats: two errors in one attempt count as worse than one, so they pool per event)
 EFFECT_WEIGHTS = {
-    'bash_streak': lambda a: _px(a, 'bash_streaks'),
-    'tool_err': lambda a: _px(a, 'tool_calls'),
-    'edit_err': lambda a: _px(a, 'edits'),
+    'iss_malf': lambda a: _px(a, 'tool_calls') if a['runner'] == 'harbor' else _aider_malf(a)[1],
+    'iss_hall': lambda a: _px(a, 'tool_calls'),
+    'iss_attn': lambda a: _px(a, 'tool_calls'),
+    'masked': lambda a: _px(a, 'tool_calls'),
+    'compile_fail': lambda a: _px(a, 'compile_runs'),
     'think_cut': lambda a: a['think_blocks'],
     'think_code': lambda a: _px(a, 'think_chars'),
     'copied': lambda a: _px(a, 'big_writes'),
@@ -578,7 +604,12 @@ EFFECT_WEIGHTS = {
 # a rate stat's natural range: the change that counts as a full-size effect (the page's
 # thresholds scale with it). Cut-off rates live in 0-10%, so 25 points would make every
 # change tiny.
-EFFECT_RATE_SPAN = {'think_cut': 0.05, 'looped': 0.05, 'stability': 0.10, 'tool_err': 0.10, 'edit_err': 0.10}
+EFFECT_RATE_SPAN = {'think_cut': 0.05, 'looped': 0.05, 'stability': 0.10, 'iss_malf': 0.02, 'iss_hall': 0.02,
+                    'iss_attn': 0.02, 'masked': 0.03, 'compile_fail': 0.25}
+# what one weight unit of a pooled stat counts (tooltips' raw counts); unlisted = attempts
+EFFECT_UNITS = {'iss_malf': 'calls', 'iss_hall': 'calls', 'iss_attn': 'calls', 'masked': 'calls',
+                'compile_fail': 'compiles', 'think_cut': 'thinking blocks', 'think_code': 'thinking chars',
+                'copied': 'big writes', 'looped': 'thinking blocks', 'loop_stuck': 'loops'}
 EFFECT_SETTING_KEYS = ('effort', 'think', 'temp', 'top_p', 'top_k', 'min_p', 'dry')
 # Name tokens that make poor groups: quant fragments (the quant itself is a group via
 # QUANT_PATTERN), and MTP (not named consistently: many MTP files don't say so).
@@ -673,7 +704,10 @@ def fx_export(attempts):
     ggufs = sorted({a['model'].split('@')[0] for a in attempts})
     return {
         'stats': [{'key': k, 'label': lb, 'kind': kd, 'better': bt,
-                   'span': EFFECT_RATE_SPAN.get(k, 0.25) if kd == 'rate' else None} for k, lb, kd, bt, _ in EFFECT_STATS],
+                   'span': EFFECT_RATE_SPAN.get(k, 0.25) if kd == 'rate' else None,
+                   # event-pooled: combined across tasks / models weighted by event count, not 1 each
+                   **({'pooled': 1} if k in EFFECT_WEIGHTS else {}),
+                   'unit': EFFECT_UNITS.get(k, 'attempts')} for k, lb, kd, bt, _ in EFFECT_STATS],
         'combos': combos, 'attempts': recs, 'model_groups': model_groups(ggufs),
         'setting_keys': list(EFFECT_SETTING_KEYS),
     }
@@ -688,9 +722,11 @@ RECENT_COUNTS = {
               ('error outputs', 'error_outputs'), ('test timeouts', 'test_timeouts'),
               ('lazy comments', 'lazy_comments'), ('context exhaustions', 'exhausted_context_windows'),
               ('output-limit hits', 'hist_output_limit'), ('server errors', 'hist_server_errors')],
-    'harbor': [('tool calls', 'tool_calls'), ('tool errors', 'tool_errors'), ('malformed calls', 'malformed_calls'),
-               ('edits', 'edits'), ('edit errors', 'edit_errors'), ('test runs', 'test_runs'),
-               ('builds', 'build_runs'), ('failed builds', 'build_fail_runs'),
+    'harbor': [('tool calls', 'tool_calls'), ('malformed', 'iss_malformed'), ('hallucinated', 'iss_hallucinated'),
+               ('attention', 'iss_attention'), ('mis-wired', 'iss_miswired'), ('overreach', 'iss_overreach'),
+               ('env gaps', 'iss_env_gap'), ('unclassified', 'iss_unclassified'),
+               ('edits', 'edits'), ('test runs', 'test_runs'),
+               ('compiles', 'compile_runs'), ('failed compiles', 'compile_fails'),
                ('thinking blocks', 'thinking_blocks'), ('thinking cut off', 'thinking_cutoffs'),
                ('big writes', 'big_writes'), ('writes copied from thinking', 'writes_from_think'),
                ('thinking spills', 'think_spills'), ('looped blocks', 'loop_blocks'),
