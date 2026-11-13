@@ -47,8 +47,13 @@ FLAGS = {
     "context":        "Exhausted the context window",
     "output_limit":   "A reply hit the output-token limit",
     "reasoning_cut":  "Thinking was cut off by the reasoning budget",
-    "malformed":      "Malformed edit / tool call",
-    "edit_errors":    "Edit tool errors",
+    "malformed":      "Malformed output: broken tool call, bash syntax, typo'd path / edit (docs/issue-taxonomy.md)",
+    "hallucinated":   "Referenced something that never existed (path, command, module, flag, code to edit)",
+    "attention":      "Lost track of state: stale edit / tmp path, repeated something it was told fails, no-op edit",
+    "mis_wired":      "Valid pieces wired wrong (killed its own shell, interactive tool in a non-interactive shell)",
+    "overreach":      "Tried what it shouldn't: hidden tests, sudo/su, system dirs",
+    "env_gap":        "Reached for a reasonable tool the image lacks (harness gap, not scored)",
+    "prompt_leak":    "Personal CLAUDE.md tools leaked into the system prompt (old jobs)",
     "lint":           "Edit didn't parse (aider lint retry)",
     "wrong_file":     "Edited a file outside the exercise",
     "build_failed":   "Final code didn't build (0 tests ran)",
@@ -65,7 +70,6 @@ FLAGS = {
     "recalled_inferred": "Same model recalled this exercise's solution in Harbor (no aider trajectory to check)",
     "internet":       "Fetched an outside URL itself (curl/wget/WebFetch...; package installs not counted)",
     "source_in_prompt": "The instruction itself names Exercism / its specs",
-    "tool_errors":    "Tool calls returned errors",
     "code_in_think":  "Wrote code in its thinking (25%+ of thinking chars in code fences)",
     "copied_from_think": "A big Write/Edit (10+ lines) was copied from earlier thinking (80%+ of its lines)",
     "think_spill":    "Thinking spilled into the answer (a <think> tag in text / tool input)",
@@ -81,8 +85,8 @@ FLAGS = {
 # which runners can raise each flag (the viz suffixes single-runner ones ·A / ·H and
 # rates them over that runner's attempts only)
 AIDER_FLAGS = {"recalled_inferred", "context", "output_limit", "malformed", "lint", "wrong_file", "server_error", "test_timeout", "lazy"}
-HARBOR_FLAGS = {"malformed", "edit_errors", "reasoning_cut", "markup_final", "slow_server", "proxy_rejected",
-                "build_failed", "knows_source", "knows_early", "recalled_content", "fetched_source", "internet", "source_in_prompt", "tool_errors", "never_tested",
+HARBOR_FLAGS = {"malformed", "hallucinated", "attention", "mis_wired", "overreach", "env_gap", "prompt_leak", "reasoning_cut", "markup_final", "slow_server", "proxy_rejected",
+                "build_failed", "knows_source", "knows_early", "recalled_content", "fetched_source", "internet", "source_in_prompt", "never_tested",
                 "ran_past_pass", "wrote_tests",
                 "think_spill", "looped", "loop_stuck", "max_tokens",
                 "code_in_think", "copied_from_think", "phantom_prompt"}
@@ -114,11 +118,14 @@ GLITCH_WEIGHTS = {
     "think_spill":  0.7,   # thinking tags leaked into the answer / tool input
     "markup_final": 0.6,   # ended on raw tool markup
     "looped":       0.4,   # repeated itself but recovered
-    "malformed":    0.4,   # malformed tool call / edit block
+    "malformed":    0.4,   # malformed tool call / edit block / bash syntax / typo
+    # mistakes, not degeneration; low weights per occurrence (repeats count), uncalibrated
+    "attention":    0.15,  # stale state, forgot feedback, no-op edit
+    "hallucinated": 0.1,   # invented path / command / module / code
+    "mis_wired":    0.1,
     "lint":         0.3,   # edit didn't parse
     "wrong_file":   0.3,
     "lazy":         0.2,   # placeholder comments
-    "edit_errors":  0.15,  # often just stale old_string, but frequent in broken quants
     "reasoning_cut": 0.25, # thinking hit its budget and was cut off mid-thought
     "phantom_prompt": 0.1, # leaked "no task yet" template; usually still makes its tool call
 }
@@ -144,7 +151,9 @@ def _n(row, col) -> int:
 # how many times each GLITCH_WEIGHTS flag happened in an attempt (the flags only say 1+)
 def flag_counts(row: dict, runner: str) -> dict:
     if runner == "harbor":
-        return {"malformed": _n(row, "malformed_calls"), "edit_errors": _n(row, "edit_errors"),
+        return {"malformed": _n(row, "iss_malformed") or _n(row, "malformed_calls"),
+                "hallucinated": _n(row, "iss_hallucinated"), "attention": _n(row, "iss_attention"),
+                "mis_wired": _n(row, "iss_miswired"),
                 "reasoning_cut": max(_n(row, "thinking_cutoffs"), _n(row, "px_budget_cutoffs")),
                 "think_spill": _n(row, "think_spills"), "looped": _n(row, "loop_blocks"),
                 "loop_stuck": _n(row, "loop_unrecovered"), "phantom_prompt": _n(row, "phantom_prompts")}
@@ -212,10 +221,14 @@ RAN_PAST_PASS_REQUESTS = 5
 
 def classify_harbor(row: dict) -> tuple[str, set[str]]:
     flags = set()
-    if nz(row.get("malformed_calls")):
+    if nz(row.get("malformed_calls")) or nz(row.get("iss_malformed")):
         flags.add("malformed")
-    if nz(row.get("edit_errors")):
-        flags.add("edit_errors")
+    # docs/issue-taxonomy.md categories (harbor/issues.py)
+    for col, flag in (("iss_hallucinated", "hallucinated"), ("iss_attention", "attention"),
+                      ("iss_miswired", "mis_wired"), ("iss_overreach", "overreach"),
+                      ("iss_env_gap", "env_gap"), ("prompt_leak", "prompt_leak")):
+        if nz(row.get(col)):
+            flags.add(flag)
     if nz(row.get("thinking_cutoffs")) or nz(row.get("px_budget_cutoffs")):
         flags.add("reasoning_cut")
     if nz(row.get("markup_final")):
@@ -248,8 +261,6 @@ def classify_harbor(row: dict) -> tuple[str, set[str]]:
         flags.add("internet")
     if nz(row.get("instr_names_source")):
         flags.add("source_in_prompt")
-    if nz(row.get("tool_errors")):
-        flags.add("tool_errors")
     # a clean finish spends 1-2 requests after the first pass (its summary); also catches
     # passes that then ran into the time/token limit, and fails that broke passing code
     if (row.get("post_pass_requests") or "").isdigit() and int(row["post_pass_requests"]) >= RAN_PAST_PASS_REQUESTS:

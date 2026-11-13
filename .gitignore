@@ -1,3 +1,4 @@
 *.lock
 __pycache__/
 tmp/
+/viz/.playwright-cli/
